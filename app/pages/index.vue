@@ -9,6 +9,14 @@ const loading = ref(false)
 const saving = ref(false)
 const drawers = ref<PrepDrawer[]>([])
 
+const setDefaultDrawers = () => {
+  drawers.value = DRAWERS.map(d => ({
+    name: d.name,
+    icon: d.icon,
+    items: d.items.map(name => ({ name, checked: false }))
+  }))
+}
+
 const checkAuth = async () => {
   if (authExpiry.value && authExpiry.value > Date.now()) {
     authenticated.value = true
@@ -35,26 +43,32 @@ const onPinComplete = async (value: string[]) => {
 }
 
 const fetchList = async () => {
-  const data = await $fetch('/api/list')
-  console.log('Fetched from KV:', data)
-  if (data) {
-    drawers.value = data.drawers
-  } else {
+  try {
+    const data = await $fetch('/api/list', { cache: 'no-store', query: { t: Date.now() } })
+    console.log('Fetched from KV:', data)
+    if (data?.drawers) {
+      drawers.value = data.drawers
+      return
+    }
     console.log('No data in KV, using defaults')
-    drawers.value = DRAWERS.map(d => ({
-      name: d.name,
-      icon: d.icon,
-      items: d.items.map(name => ({ name, checked: false }))
-    }))
+  } catch (error) {
+    console.error('Failed to fetch list, using defaults', error)
   }
+  setDefaultDrawers()
 }
 
 const saveList = async () => {
   saving.value = true
   console.log('Saving to KV:', drawers.value)
-  await $fetch('/api/list', { method: 'POST', body: { drawers: drawers.value } })
-  console.log('Saved successfully')
-  saving.value = false
+  try {
+    await $fetch('/api/list', { method: 'POST', body: { drawers: drawers.value }, cache: 'no-store' })
+    console.log('Saved successfully')
+    await fetchList()
+  } catch (error) {
+    console.error('Failed to save list', error)
+  } finally {
+    saving.value = false
+  }
 }
 
 const toggleItem = (drawerIdx: number, itemIdx: number) => {
@@ -101,6 +115,16 @@ onMounted(checkAuth)
         </div>
 
         <UAccordion :items="accordionItems" :default-open="0" multiple>
+          <template v-for="(drawer, dIdx) in drawers" :key="dIdx" #[`item-${dIdx}`]="{ item, open }">
+            <UButton color="gray" variant="ghost" class="w-full justify-between">
+              <div class="flex items-center gap-2">
+                <UIcon :name="item.icon" class="size-5" />
+                <span class="font-medium">{{ item.label }}</span>
+                <UBadge v-if="item.badge" :label="String(item.badge)" color="primary" variant="subtle" size="xs" />
+              </div>
+              <UIcon :name="open ? 'i-heroicons-chevron-up-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="size-5 transition-transform" />
+            </UButton>
+          </template>
           <template v-for="(drawer, dIdx) in drawers" :key="dIdx" #[`drawer-${dIdx}`]>
             <div class="p-4">
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">

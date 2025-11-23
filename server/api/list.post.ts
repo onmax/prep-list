@@ -1,6 +1,7 @@
 export default defineEventHandler(async (event) => {
-  const auth = getCookie(event, 'prep-auth')
-  if (auth !== 'verified') throw createError({ statusCode: 401, message: 'Unauthorized' })
+  setResponseHeader(event, 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+  setResponseHeader(event, 'Pragma', 'no-cache')
+  setResponseHeader(event, 'Expires', '0')
 
   const { drawers } = await readBody(event)
   const data = { drawers, updatedAt: Date.now() }
