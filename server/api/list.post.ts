@@ -3,7 +3,10 @@ export default defineEventHandler(async (event) => {
   if (auth !== 'verified') throw createError({ statusCode: 401, message: 'Unauthorized' })
 
   const { drawers } = await readBody(event)
-  await hubKV().set('prep-list', { drawers, updatedAt: Date.now() })
+  const data = { drawers, updatedAt: Date.now() }
+  console.log('POST /api/list - Saving to KV:', data)
+  await hubKV().set('prep-list', data)
+  console.log('POST /api/list - Saved successfully')
 
   return { success: true }
 })

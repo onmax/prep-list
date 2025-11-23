@@ -36,9 +36,11 @@ const onPinComplete = async (value: string[]) => {
 
 const fetchList = async () => {
   const data = await $fetch('/api/list')
+  console.log('Fetched from KV:', data)
   if (data) {
     drawers.value = data.drawers
   } else {
+    console.log('No data in KV, using defaults')
     drawers.value = DRAWERS.map(d => ({
       name: d.name,
       icon: d.icon,
@@ -49,7 +51,9 @@ const fetchList = async () => {
 
 const saveList = async () => {
   saving.value = true
+  console.log('Saving to KV:', drawers.value)
   await $fetch('/api/list', { method: 'POST', body: { drawers: drawers.value } })
+  console.log('Saved successfully')
   saving.value = false
 }
 
@@ -58,12 +62,16 @@ const toggleItem = (drawerIdx: number, itemIdx: number) => {
 }
 
 const accordionItems = computed(() =>
-  drawers.value.map((drawer, idx) => ({
-    label: drawer.name,
-    icon: drawer.icon,
-    slot: `drawer-${idx}`,
-    defaultOpen: idx === 0
-  }))
+  drawers.value.map((drawer, idx) => {
+    const uncheckedCount = drawer.items.filter(item => !item.checked).length
+    return {
+      label: drawer.name,
+      icon: drawer.icon,
+      slot: `drawer-${idx}`,
+      defaultOpen: idx === 0,
+      badge: uncheckedCount > 0 ? uncheckedCount : undefined
+    }
+  })
 )
 
 onMounted(checkAuth)
@@ -92,7 +100,7 @@ onMounted(checkAuth)
           <UButton @click="saveList" :loading="saving" icon="i-heroicons-check" size="lg" color="primary">Save</UButton>
         </div>
 
-        <UAccordion :items="accordionItems" :default-open="0">
+        <UAccordion :items="accordionItems" :default-open="0" multiple>
           <template v-for="(drawer, dIdx) in drawers" :key="dIdx" #[`drawer-${dIdx}`]>
             <div class="p-4">
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
