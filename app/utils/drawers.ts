@@ -1,17 +1,18 @@
 export const DRAWERS = [
-  { name: 'Freezer', icon: 'i-heroicons-cube', items: ['Tuna', 'Beef'] },
-  { name: 'Tuna Tartar', icon: 'i-heroicons-sparkles', items: ['Cut Tuna', 'Cut Tomatoes', 'Tomatoes', 'Dressing', 'Mustard', 'Pre-Dressing'] },
-  { name: 'Cheese', icon: 'i-heroicons-cake', items: ['Blue Cheese', 'Goat Cheese', 'Other cheese', 'Figs', 'Burratas'] },
-  { name: 'Tiramisu', icon: 'i-heroicons-gift', items: ['Tiramisu Slided'] },
-  { name: 'Grilled Leak', icon: 'i-heroicons-fire', items: ['Grilled Leak', 'Leak', 'Leak Dressing', 'Vinaigrette', 'Boil eggs', 'Eggs', 'Parsley'] },
-  { name: 'Beef Tartar', icon: 'i-heroicons-star', items: ['Cut Beef', 'Danish Mayo', 'Pickled Mushrooms'] },
-  { name: 'Pumpkin', icon: 'i-heroicons-sun', items: ['Roasted Pumpkin', 'Pomegranate', 'Goat Cheese', 'Yogurt Dressing', 'Jalapeño Pepper', 'Capers in box'] },
-  { name: 'Potatoes', icon: 'i-heroicons-square-3-stack-3d', items: ['Potatoes', 'Ali Oli', 'Bravas', 'Capers', 'Truffle Paste'] },
-  { name: 'Truffle Pasta', icon: 'i-heroicons-bolt', items: ['Truffle Sauce', 'Mushrooms for pasta', 'Parmesan Cheese', 'Truffle Butter', 'Black Truffle'] },
-  { name: 'Padrons', icon: 'i-heroicons-beaker', items: ['Padrons Peppers', 'Garlic Oil'] },
-  { name: 'Bolognese', icon: 'i-heroicons-heart', items: ['Bolognese', 'Brown Butter', 'Vesterhavcst'] },
-  { name: 'Cold Section', icon: 'i-heroicons-archive-box', items: ['Panko', 'Mushrooms powder', 'Paprika', 'Wheat', 'Nuts', 'Salt', 'Olive Oil'] }
-]
+  { name: 'Foccacia', icon: 'i-heroicons-cube', items: ['Foccacia Bread', 'Whipped Butter', 'Lovange'] },
+{ name: 'Olive', icon: 'i-heroicons-sparkles', items: [] },
+{ name: 'Canned Fish', icon: 'i-heroicons-cake', items: ['Ali Oli', 'Cut Lemons', 'Vaccum Jalapeños'] },
+{ name: 'Tuna Tartar', icon: 'i-heroicons-gift', items: ['Cut Tuna', 'Cut Tomatoes Cherry', 'Tuna Dressing'] },
+{ name: 'Beef Tartar', icon: 'i-heroicons-fire', items: ['Cut Beef', 'Mushrooms for tartar', 'dashi mayo', 'Panki'] },
+{ name: 'Grilled Leeks', icon: 'i-heroicons-star', items: ['Cut leeks', 'Grill Leeks', 'Vinnagrete', 'Boil Eggs', 'Cut Anchovies', 'Croutons', 'Cut Tarragon', 'Prepare Parsley'] },
+{ name: 'Pasta Bolognese', icon: 'i-heroicons-sun', items: ['Bolognese Sauce', 'Brown Butter', 'Cut Vesterhavcst'] },
+{ name: 'Padrons', icon: 'i-heroicons-square-3-stack-3d', items: ['Spear Padrons', 'Garlic Oil'] },
+{ name: 'Burrata', icon: 'i-heroicons-bolt', items: [] },
+{ name: 'Patatas Bravas', icon: 'i-heroicons-beaker', items: ['Do potatoes', 'Bravas Sauce', 'Ali Oli', 'Put Bravas Sauce in small bags', 'Put Ali Oli in small bags'] },
+{ name: 'Roasted Pumpkin', icon: 'i-heroicons-heart', items: ['Roast Pumkin', 'Cut Cheese for Pumpkin', 'Yoghurt', 'Pumpkin Pure', 'Cryspy Kale', 'Pomergranate'] },
+{ name: 'Pasta al Tartufo', icon: 'i-heroicons-archive-box', items: ['Al Tartufo Sauce', 'Mushrooms for pasta', 'Truffle Butter', 'Cut Parmesan Cheese'] },
+{ name: 'Cheese Plata', icon: 'i-heroicons-gift', items: ['Figs', 'Cut 3 Cheeses', 'Crakers'] },
+{ name: 'Tiramisú', icon: 'i-heroicons-fire', items: ['Make Tiramisú'] }
 
 export interface PrepItem { name: string, checked: boolean }
 export interface PrepDrawer { name: string, icon?: string, items: PrepItem[] }
