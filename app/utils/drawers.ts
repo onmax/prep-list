@@ -12,7 +12,7 @@ export const DRAWERS = [
 { name: 'Pasta al Tartufo', icon: 'i-heroicons-archive-box', items: ['Al Tartufo Sauce', 'Mushrooms for pasta', 'Truffle Butter', 'Cut Parmesan Cheese'] },
 { name: 'Cheese Plata', icon: 'i-heroicons-gift', items: ['Figs', 'Cut 3 Cheeses', 'Crakers'] },
 { name: 'Tiramisú', icon: 'i-heroicons-fire', items: ['Make Tiramisú'] }
-
+  
 export interface PrepItem { name: string, checked: boolean }
 export interface PrepDrawer { name: string, icon?: string, items: PrepItem[] }
 export interface PrepList { id?: string, createdAt: number, drawers: PrepDrawer[] }
