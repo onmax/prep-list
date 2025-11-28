@@ -1,6 +1,5 @@
 export const DRAWERS = [
 { name: 'Foccacia', icon: 'i-heroicons-cube', items: ['Foccacia Bread', 'Whipped Butter', 'Lovange'] },
-{ name: 'Olive', icon: 'i-heroicons-sparkles', items: [] },
 { name: 'Canned Fish', icon: 'i-heroicons-cake', items: ['Ali Oli', 'Cut Lemons', 'Vaccum Jalapeños'] },
 { name: 'Tuna Tartar', icon: 'i-heroicons-gift', items: ['Cut Tuna', 'Cut Tomatoes Cherry', 'Tuna Dressing'] },
 { name: 'Beef Tartar', icon: 'i-heroicons-fire', items: ['Cut Beef', 'Mushrooms for tartar', 'dashi mayo', 'Panki'] },
