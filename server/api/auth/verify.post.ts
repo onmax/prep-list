@@ -4,7 +4,7 @@ export default defineEventHandler(async (event) => {
 
   console.log('PIN check:', { received: pin, expected: correctPin, match: pin === correctPin })
 
-  if (pin === correctPin) {
+  if (String(pin) === String(correctPin)) {
     setCookie(event, 'prep-auth', 'verified', { httpOnly: true, maxAge: 60 * 60 * 24 * 7 })
     return { success: true }
   }
