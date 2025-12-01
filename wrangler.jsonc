@@ -7,5 +7,6 @@
   "compatibility_date": "2025-12-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  "vars": { "NUXT_PIN_CODE": "3489" },
   "kv_namespaces": [{ "binding": "KV", "id": "6f8e1e9326e44b689010408ac270456c" }]
 }
