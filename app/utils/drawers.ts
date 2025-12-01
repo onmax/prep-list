@@ -1,3 +1,6 @@
+// Bump this when DRAWERS changes to reset stored data
+export const DRAWERS_VERSION = 1
+
 export const DRAWERS = [
   { name: 'Foccacia', icon: 'i-heroicons-cube', items: ['Foccacia Bread', 'Whipped Butter', 'Lovange'] },
   { name: 'Olive', icon: 'i-heroicons-ellipsis-horizontal-circle', items: [] },
@@ -17,4 +20,4 @@ export const DRAWERS = [
 
 export interface PrepItem { name: string, checked: boolean }
 export interface PrepDrawer { name: string, icon?: string, items: PrepItem[] }
-export interface PrepList { id?: string, createdAt: number, drawers: PrepDrawer[] }
+export interface PrepList { id?: string, createdAt: number, version?: number, drawers: PrepDrawer[] }

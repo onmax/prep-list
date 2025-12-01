@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { PrepDrawer } from '~/utils/drawers'
-import { DRAWERS } from '~/utils/drawers'
+import type { PrepDrawer, PrepList } from '~/utils/drawers'
+import { DRAWERS, DRAWERS_VERSION } from '~/utils/drawers'
 
 const authExpiry = useLocalStorage<number | null>('prep-auth-expiry', null)
 const authenticated = ref(false)
@@ -44,13 +44,13 @@ const onPinComplete = async (value: string[]) => {
 
 const fetchList = async () => {
   try {
-    const data = await $fetch('/api/list', { cache: 'no-store', query: { t: Date.now() } })
+    const data = await $fetch('/api/list', { cache: 'no-store', query: { t: Date.now() } }) as PrepList | null
     console.log('Fetched from KV:', data)
-    if (data?.drawers) {
+    if (data?.drawers && data?.version === DRAWERS_VERSION) {
       drawers.value = data.drawers
       return
     }
-    console.log('No data in KV, using defaults')
+    console.log('No data or version mismatch, using defaults')
   } catch (error) {
     console.error('Failed to fetch list, using defaults', error)
   }
@@ -61,7 +61,7 @@ const saveList = async () => {
   saving.value = true
   console.log('Saving to KV:', drawers.value)
   try {
-    await $fetch('/api/list', { method: 'POST', body: { drawers: drawers.value }, cache: 'no-store' })
+    await $fetch('/api/list', { method: 'POST', body: { drawers: drawers.value, version: DRAWERS_VERSION }, cache: 'no-store' })
     console.log('Saved successfully')
     await fetchList()
   } catch (error) {
@@ -100,7 +100,7 @@ onMounted(checkAuth)
             <h2 class="text-xl font-bold text-center">Enter PIN</h2>
           </template>
           <div class="flex flex-col items-center gap-4 p-4">
-            <UPinInput v-model="pin" :length="4" type="number" mask otp placeholder="○" size="xl" @complete="onPinComplete" :disabled="loading" />
+            <UPinInput v-model="pin" :length="4" type="number" mask otp placeholder="○" size="xl" :disabled="loading" @complete="onPinComplete" />
             <p v-if="loading" class="text-sm text-gray-500">Verifying...</p>
           </div>
         </UCard>
@@ -111,7 +111,7 @@ onMounted(checkAuth)
       <UContainer class="py-4 space-y-4">
         <div class="flex justify-between items-center sticky top-0 bg-white dark:bg-gray-950 py-3 z-10">
           <h1 class="text-2xl font-bold">Prep List</h1>
-          <UButton @click="saveList" :loading="saving" icon="i-heroicons-check" size="lg" color="primary">Save</UButton>
+          <UButton :loading="saving" icon="i-heroicons-check" size="lg" color="primary" @click="saveList">Save</UButton>
         </div>
 
         <UAccordion :items="accordionItems" :default-open="0" multiple>
@@ -128,7 +128,7 @@ onMounted(checkAuth)
           <template v-for="(drawer, dIdx) in drawers" :key="dIdx" #[`drawer-${dIdx}`]>
             <div class="p-4">
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                <UCheckbox v-for="(item, iIdx) in drawer.items" :key="iIdx" :model-value="item.checked" @update:model-value="toggleItem(dIdx, iIdx)" variant="card" size="sm">
+                <UCheckbox v-for="(item, iIdx) in drawer.items" :key="iIdx" :model-value="item.checked" variant="card" size="sm" @update:model-value="toggleItem(dIdx, iIdx)">
                   <template #label>
                     <span :class="{ 'line-through text-gray-500': item.checked }">{{ item.name }}</span>
                   </template>
