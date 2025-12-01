@@ -1,0 +1,7 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prep-list",
+  "account_id": "ba6e044dfdaaffec3cac45e9feccd237",
+  "compatibility_flags": ["nodejs_compat"],
+  "kv_namespaces": [{ "binding": "KV", "id": "6f8e1e9326e44b689010408ac270456c" }]
+}
