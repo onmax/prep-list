@@ -75,69 +75,45 @@ const toggleItem = (drawerIdx: number, itemIdx: number) => {
   drawers.value[drawerIdx].items[itemIdx].checked = !drawers.value[drawerIdx].items[itemIdx].checked
 }
 
-const accordionItems = computed(() =>
-  drawers.value.map((drawer, idx) => {
-    const uncheckedCount = drawer.items.filter(item => !item.checked).length
-    return {
-      label: drawer.name,
-      icon: drawer.icon,
-      slot: `drawer-${idx}`,
-      defaultOpen: idx === 0,
-      badge: uncheckedCount > 0 ? uncheckedCount : undefined
-    }
-  })
-)
-
 onMounted(checkAuth)
 </script>
 
 <template>
   <UApp>
     <UMain v-if="!authenticated" class="flex items-center justify-center min-h-screen">
-      <UContainer>
-        <UCard class="w-full max-w-sm mx-auto">
-          <template #header>
-            <h2 class="text-xl font-bold text-center">Enter PIN</h2>
-          </template>
-          <div class="flex flex-col items-center gap-4 p-4">
-            <UPinInput v-model="pin" :length="4" type="number" mask otp placeholder="○" size="xl" :disabled="loading" @complete="onPinComplete" />
-            <p v-if="loading" class="text-sm text-gray-500">Verifying...</p>
-          </div>
-        </UCard>
-      </UContainer>
+      <div class="flex flex-col items-center gap-3 p-4">
+        <h2 class="text-lg font-semibold">Enter PIN</h2>
+        <UPinInput v-model="pin" :length="4" type="number" mask otp placeholder="○" size="lg" :disabled="loading" @complete="onPinComplete" />
+        <p v-if="loading" class="text-xs text-gray-500">Verifying...</p>
+      </div>
     </UMain>
 
-    <UMain v-else>
-      <UContainer class="py-4 space-y-4">
-        <div class="flex justify-between items-center sticky top-0 bg-white dark:bg-gray-950 py-3 z-10">
-          <h1 class="text-2xl font-bold">Prep List</h1>
-          <UButton :loading="saving" icon="i-heroicons-check" size="lg" color="primary" @click="saveList">Save</UButton>
-        </div>
+    <UMain v-else class="p-2">
+      <div class="flex justify-between items-center sticky top-0 bg-white dark:bg-gray-950 py-1 z-10 mb-2">
+        <h1 class="text-lg font-bold">Prep</h1>
+        <UButton :loading="saving" icon="i-heroicons-check" size="xs" color="primary" @click="saveList">Save</UButton>
+      </div>
 
-        <UAccordion :items="accordionItems" :default-open="0" multiple>
-          <template v-for="(drawer, dIdx) in drawers" :key="dIdx" #[`item-${dIdx}`]="{ item, open }">
-            <UButton color="gray" variant="ghost" class="w-full justify-between">
-              <div class="flex items-center gap-2">
-                <UIcon :name="item.icon" class="size-5" />
-                <span class="font-medium">{{ item.label }}</span>
-                <UBadge v-if="item.badge" :label="String(item.badge)" color="primary" variant="subtle" size="xs" />
-              </div>
-              <UIcon :name="open ? 'i-heroicons-chevron-up-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="size-5 transition-transform" />
-            </UButton>
-          </template>
-          <template v-for="(drawer, dIdx) in drawers" :key="dIdx" #[`drawer-${dIdx}`]>
-            <div class="p-4">
-              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                <UCheckbox v-for="(item, iIdx) in drawer.items" :key="iIdx" :model-value="item.checked" variant="card" size="sm" @update:model-value="toggleItem(dIdx, iIdx)">
-                  <template #label>
-                    <span :class="{ 'line-through text-gray-500': item.checked }">{{ item.name }}</span>
-                  </template>
-                </UCheckbox>
-              </div>
+      <div class="space-y-2">
+        <template v-for="(drawer, dIdx) in drawers" :key="dIdx">
+          <div v-if="drawer.items.length > 0">
+            <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{{ drawer.name }}</div>
+            <div class="flex flex-wrap gap-1">
+              <button
+                v-for="(item, iIdx) in drawer.items"
+                :key="iIdx"
+                class="px-2 py-0.5 text-xs rounded-full border transition-all"
+                :class="item.checked
+                  ? 'bg-green-100 dark:bg-green-900 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 line-through opacity-60'
+                  : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'"
+                @click="toggleItem(dIdx, iIdx)"
+              >
+                {{ item.name }}
+              </button>
             </div>
-          </template>
-        </UAccordion>
-      </UContainer>
+          </div>
+        </template>
+      </div>
     </UMain>
   </UApp>
 </template>
