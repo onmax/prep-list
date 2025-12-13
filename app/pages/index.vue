@@ -71,9 +71,27 @@ const saveList = async () => {
   }
 }
 
-const toggleItem = (drawerIdx: number, itemIdx: number) => {
-  drawers.value[drawerIdx].items[itemIdx].checked = !drawers.value[drawerIdx].items[itemIdx].checked
+const toggleItem = (drawerName: string, itemName: string) => {
+  const drawer = drawers.value.find(d => d.name === drawerName)
+  if (!drawer) return
+  const item = drawer.items.find(i => i.name === itemName)
+  if (item) item.checked = !item.checked
 }
+
+// Filter mode: show only selected items
+const showSelectedOnly = ref(false)
+
+const filteredDrawers = computed(() => {
+  if (!showSelectedOnly.value) return drawers.value
+  return drawers.value.map(drawer => ({
+    ...drawer,
+    items: drawer.items.filter(item => item.checked)
+  })).filter(drawer => drawer.items.length > 0)
+})
+
+const selectedCount = computed(() => {
+  return drawers.value.reduce((acc, drawer) => acc + drawer.items.filter(item => item.checked).length, 0)
+})
 
 onMounted(checkAuth)
 </script>
@@ -91,22 +109,33 @@ onMounted(checkAuth)
     <UMain v-else class="p-2">
       <div class="flex justify-between items-center sticky top-0 bg-white dark:bg-gray-950 py-1 z-10 mb-2">
         <h1 class="text-lg font-bold">Prep</h1>
-        <UButton :loading="saving" icon="i-heroicons-check" size="xs" color="primary" @click="saveList">Save</UButton>
+        <div class="flex items-center gap-2">
+          <UButton
+            :icon="showSelectedOnly ? 'i-heroicons-eye' : 'i-heroicons-eye-slash'"
+            size="xs"
+            :color="showSelectedOnly ? 'primary' : 'neutral'"
+            :variant="showSelectedOnly ? 'solid' : 'ghost'"
+            @click="showSelectedOnly = !showSelectedOnly"
+          >
+            {{ selectedCount }}
+          </UButton>
+          <UButton :loading="saving" icon="i-heroicons-check" size="xs" color="primary" @click="saveList">Save</UButton>
+        </div>
       </div>
 
       <div class="space-y-2">
-        <template v-for="(drawer, dIdx) in drawers" :key="dIdx">
+        <template v-for="drawer in filteredDrawers" :key="drawer.name">
           <div v-if="drawer.items.length > 0">
             <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{{ drawer.name }}</div>
             <div class="flex flex-wrap gap-1">
               <button
-                v-for="(item, iIdx) in drawer.items"
-                :key="iIdx"
+                v-for="item in drawer.items"
+                :key="item.name"
                 class="px-2 py-0.5 text-xs rounded-full border transition-all"
                 :class="item.checked
-                  ? 'bg-green-100 dark:bg-green-900 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 line-through opacity-60'
+                  ? 'bg-green-500 dark:bg-green-600 border-green-600 dark:border-green-500 text-white font-medium'
                   : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'"
-                @click="toggleItem(dIdx, iIdx)"
+                @click="toggleItem(drawer.name, item.name)"
               >
                 {{ item.name }}
               </button>
