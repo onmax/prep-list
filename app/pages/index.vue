@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PrepDrawer, PrepList } from '~/utils/drawers'
-import { DRAWERS, DRAWERS_VERSION } from '~/utils/drawers'
+import { DRAWERS, DRAWERS_VERSION, AVAILABLE_ICONS } from '~/utils/drawers'
 
 const authExpiry = useLocalStorage<number | null>('prep-auth-expiry', null)
 const authenticated = ref(false)
@@ -8,6 +8,16 @@ const pin = ref<string[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const drawers = ref<PrepDrawer[]>([])
+
+// Edit mode state
+const editMode = ref(false)
+const showItemModal = ref(false)
+const showDrawerModal = ref(false)
+const showDeleteConfirm = ref(false)
+const editingDrawerIndex = ref<number | null>(null)
+const editingItemIndex = ref<number | null>(null)
+const editingValue = ref({ name: '', icon: 'i-heroicons-cube' })
+const deleteTarget = ref<{ type: 'drawer' | 'item', drawerIndex: number, itemIndex?: number } | null>(null)
 
 const setDefaultDrawers = () => {
   drawers.value = DRAWERS.map(d => ({
@@ -93,6 +103,80 @@ const selectedCount = computed(() => {
   return drawers.value.reduce((acc, drawer) => acc + drawer.items.filter(item => item.checked).length, 0)
 })
 
+// Drawer CRUD
+const openAddDrawer = () => {
+  editingDrawerIndex.value = null
+  editingValue.value = { name: '', icon: 'i-heroicons-cube' }
+  showDrawerModal.value = true
+}
+
+const openEditDrawer = (index: number) => {
+  const drawer = drawers.value[index]
+  editingDrawerIndex.value = index
+  editingValue.value = { name: drawer.name, icon: drawer.icon || 'i-heroicons-cube' }
+  showDrawerModal.value = true
+}
+
+const saveDrawer = () => {
+  if (!editingValue.value.name.trim()) return
+  if (editingDrawerIndex.value === null) {
+    drawers.value.push({
+      name: editingValue.value.name.trim(),
+      icon: editingValue.value.icon,
+      items: []
+    })
+  } else {
+    drawers.value[editingDrawerIndex.value].name = editingValue.value.name.trim()
+    drawers.value[editingDrawerIndex.value].icon = editingValue.value.icon
+  }
+  showDrawerModal.value = false
+}
+
+// Item CRUD
+const openAddItem = (drawerIndex: number) => {
+  editingDrawerIndex.value = drawerIndex
+  editingItemIndex.value = null
+  editingValue.value = { name: '', icon: '' }
+  showItemModal.value = true
+}
+
+const openEditItem = (drawerIndex: number, itemIndex: number) => {
+  editingDrawerIndex.value = drawerIndex
+  editingItemIndex.value = itemIndex
+  editingValue.value = { name: drawers.value[drawerIndex].items[itemIndex].name, icon: '' }
+  showItemModal.value = true
+}
+
+const saveItem = () => {
+  if (editingDrawerIndex.value === null || !editingValue.value.name.trim()) return
+  if (editingItemIndex.value === null) {
+    drawers.value[editingDrawerIndex.value].items.push({
+      name: editingValue.value.name.trim(),
+      checked: false
+    })
+  } else {
+    drawers.value[editingDrawerIndex.value].items[editingItemIndex.value].name = editingValue.value.name.trim()
+  }
+  showItemModal.value = false
+}
+
+// Delete
+const confirmDelete = (type: 'drawer' | 'item', drawerIndex: number, itemIndex?: number) => {
+  deleteTarget.value = { type, drawerIndex, itemIndex }
+  showDeleteConfirm.value = true
+}
+
+const executeDelete = () => {
+  if (!deleteTarget.value) return
+  if (deleteTarget.value.type === 'drawer') {
+    drawers.value.splice(deleteTarget.value.drawerIndex, 1)
+  } else if (deleteTarget.value.itemIndex !== undefined) {
+    drawers.value[deleteTarget.value.drawerIndex].items.splice(deleteTarget.value.itemIndex, 1)
+  }
+  showDeleteConfirm.value = false
+  deleteTarget.value = null
+}
+
 onMounted(checkAuth)
 </script>
 
@@ -119,30 +203,145 @@ onMounted(checkAuth)
           >
             {{ selectedCount }}
           </UButton>
-          <UButton :loading="saving" icon="i-heroicons-check" size="xs" color="primary" @click="saveList">Save</UButton>
+          <UButton
+            :icon="editMode ? 'i-heroicons-check' : 'i-heroicons-pencil-square'"
+            size="xs"
+            :color="editMode ? 'primary' : 'neutral'"
+            :variant="editMode ? 'solid' : 'ghost'"
+            @click="editMode = !editMode"
+          >
+            {{ editMode ? 'Done' : 'Edit' }}
+          </UButton>
+          <UButton :loading="saving" icon="i-heroicons-arrow-down-tray" size="xs" color="primary" @click="saveList">Save</UButton>
         </div>
       </div>
 
       <div class="space-y-2">
-        <template v-for="drawer in filteredDrawers" :key="drawer.name">
-          <div v-if="drawer.items.length > 0">
-            <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{{ drawer.name }}</div>
+        <template v-for="(drawer, drawerIndex) in (editMode ? drawers : filteredDrawers)" :key="drawer.name">
+          <div v-if="editMode || drawer.items.length > 0">
+            <div class="flex items-center justify-between mb-1">
+              <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{{ drawer.name }}</div>
+              <div v-if="editMode" class="flex gap-1">
+                <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" @click="openEditDrawer(drawerIndex)" />
+                <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="confirmDelete('drawer', drawerIndex)" />
+              </div>
+            </div>
             <div class="flex flex-wrap gap-1">
               <button
-                v-for="item in drawer.items"
+                v-for="(item, itemIndex) in drawer.items"
                 :key="item.name"
-                class="px-2 py-0.5 text-xs rounded-full border transition-all"
-                :class="item.checked
-                  ? 'bg-green-500 dark:bg-green-600 border-green-600 dark:border-green-500 text-white font-medium'
-                  : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'"
-                @click="toggleItem(drawer.name, item.name)"
+                class="relative px-2 py-0.5 text-xs rounded-full border transition-all"
+                :class="[
+                  item.checked
+                    ? 'bg-green-500 dark:bg-green-600 border-green-600 dark:border-green-500 text-white font-medium'
+                    : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300',
+                  editMode ? 'pr-5' : ''
+                ]"
+                @click="editMode ? openEditItem(drawerIndex, itemIndex) : toggleItem(drawer.name, item.name)"
               >
                 {{ item.name }}
+                <span
+                  v-if="editMode"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-700"
+                  @click.stop="confirmDelete('item', drawerIndex, itemIndex)"
+                >
+                  <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
+                </span>
               </button>
+              <UButton
+                v-if="editMode"
+                icon="i-heroicons-plus"
+                size="2xs"
+                variant="outline"
+                class="rounded-full"
+                @click="openAddItem(drawerIndex)"
+              />
             </div>
           </div>
         </template>
+        <UButton
+          v-if="editMode"
+          icon="i-heroicons-plus"
+          variant="outline"
+          class="w-full"
+          @click="openAddDrawer"
+        >
+          Add Section
+        </UButton>
       </div>
     </UMain>
+
+    <!-- Item Modal -->
+    <UModal v-model:open="showItemModal">
+      <template #header>
+        <h3 class="font-semibold">{{ editingItemIndex === null ? 'Add Item' : 'Edit Item' }}</h3>
+      </template>
+      <template #body>
+        <UInput
+          v-model="editingValue.name"
+          placeholder="Item name"
+          autofocus
+          @keyup.enter="saveItem"
+        />
+      </template>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" @click="showItemModal = false">Cancel</UButton>
+          <UButton color="primary" @click="saveItem">Save</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Drawer Modal -->
+    <UModal v-model:open="showDrawerModal">
+      <template #header>
+        <h3 class="font-semibold">{{ editingDrawerIndex === null ? 'Add Section' : 'Edit Section' }}</h3>
+      </template>
+      <template #body>
+        <div class="space-y-4">
+          <UInput
+            v-model="editingValue.name"
+            placeholder="Section name"
+            autofocus
+          />
+          <div>
+            <label class="text-xs text-gray-500 mb-2 block">Icon</label>
+            <div class="grid grid-cols-8 gap-2">
+              <button
+                v-for="icon in AVAILABLE_ICONS"
+                :key="icon"
+                class="p-2 rounded border transition-colors"
+                :class="editingValue.icon === icon ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'border-gray-200 dark:border-gray-700'"
+                @click="editingValue.icon = icon"
+              >
+                <UIcon :name="icon" class="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" @click="showDrawerModal = false">Cancel</UButton>
+          <UButton color="primary" @click="saveDrawer">Save</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Delete Confirmation Modal -->
+    <UModal v-model:open="showDeleteConfirm">
+      <template #header>
+        <h3 class="font-semibold">Confirm Delete</h3>
+      </template>
+      <template #body>
+        <p>Are you sure you want to delete this {{ deleteTarget?.type === 'drawer' ? 'section' : 'item' }}?</p>
+      </template>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" @click="showDeleteConfirm = false">Cancel</UButton>
+          <UButton color="error" @click="executeDelete">Delete</UButton>
+        </div>
+      </template>
+    </UModal>
   </UApp>
 </template>

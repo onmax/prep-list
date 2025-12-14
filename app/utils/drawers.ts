@@ -1,6 +1,25 @@
 // Bump this when DRAWERS changes to reset stored data
 export const DRAWERS_VERSION = 1
 
+export const AVAILABLE_ICONS = [
+  'i-heroicons-cube',
+  'i-heroicons-fire',
+  'i-heroicons-star',
+  'i-heroicons-heart',
+  'i-heroicons-sun',
+  'i-heroicons-moon',
+  'i-heroicons-beaker',
+  'i-heroicons-cake',
+  'i-heroicons-gift',
+  'i-heroicons-archive-box',
+  'i-heroicons-square-3-stack-3d',
+  'i-heroicons-ellipsis-horizontal-circle',
+  'i-heroicons-shopping-cart',
+  'i-heroicons-tag',
+  'i-heroicons-home',
+  'i-heroicons-sparkles'
+] as const
+
 export const DRAWERS = [
   { name: 'Foccacia', icon: 'i-heroicons-cube', items: ['Foccacia Bread', 'Whipped Butter', 'Lovange'] },
   { name: 'Olive', icon: 'i-heroicons-ellipsis-horizontal-circle', items: [] },
