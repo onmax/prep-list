@@ -13,11 +13,9 @@ const drawers = ref<PrepDrawer[]>([])
 const editMode = ref(false)
 const showItemModal = ref(false)
 const showDrawerModal = ref(false)
-const showDeleteConfirm = ref(false)
 const editingDrawerIndex = ref<number | null>(null)
 const editingItemIndex = ref<number | null>(null)
 const editingValue = ref({ name: '', icon: 'i-heroicons-cube' })
-const deleteTarget = ref<{ type: 'drawer' | 'item', drawerIndex: number, itemIndex?: number } | null>(null)
 
 const setDefaultDrawers = () => {
   drawers.value = DRAWERS.map(d => ({
@@ -161,20 +159,12 @@ const saveItem = () => {
 }
 
 // Delete
-const confirmDelete = (type: 'drawer' | 'item', drawerIndex: number, itemIndex?: number) => {
-  deleteTarget.value = { type, drawerIndex, itemIndex }
-  showDeleteConfirm.value = true
+const deleteDrawer = (drawerIndex: number) => {
+  drawers.value.splice(drawerIndex, 1)
 }
 
-const executeDelete = () => {
-  if (!deleteTarget.value) return
-  if (deleteTarget.value.type === 'drawer') {
-    drawers.value.splice(deleteTarget.value.drawerIndex, 1)
-  } else if (deleteTarget.value.itemIndex !== undefined) {
-    drawers.value[deleteTarget.value.drawerIndex].items.splice(deleteTarget.value.itemIndex, 1)
-  }
-  showDeleteConfirm.value = false
-  deleteTarget.value = null
+const deleteItem = (drawerIndex: number, itemIndex: number) => {
+  drawers.value[drawerIndex].items.splice(itemIndex, 1)
 }
 
 onMounted(checkAuth)
@@ -223,7 +213,7 @@ onMounted(checkAuth)
               <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{{ drawer.name }}</div>
               <div v-if="editMode" class="flex gap-1">
                 <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" @click="openEditDrawer(drawerIndex)" />
-                <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="confirmDelete('drawer', drawerIndex)" />
+                <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="deleteDrawer(drawerIndex)" />
               </div>
             </div>
             <div class="flex flex-wrap gap-1">
@@ -243,7 +233,7 @@ onMounted(checkAuth)
                 <span
                   v-if="editMode"
                   class="absolute right-1 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-700"
-                  @click.stop="confirmDelete('item', drawerIndex, itemIndex)"
+                  @click.stop="deleteItem(drawerIndex, itemIndex)"
                 >
                   <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
                 </span>
@@ -324,22 +314,6 @@ onMounted(checkAuth)
         <div class="flex gap-2 justify-end">
           <UButton variant="ghost" @click="showDrawerModal = false">Cancel</UButton>
           <UButton color="primary" @click="saveDrawer">Save</UButton>
-        </div>
-      </template>
-    </UModal>
-
-    <!-- Delete Confirmation Modal -->
-    <UModal v-model:open="showDeleteConfirm">
-      <template #header>
-        <h3 class="font-semibold">Confirm Delete</h3>
-      </template>
-      <template #body>
-        <p>Are you sure you want to delete this {{ deleteTarget?.type === 'drawer' ? 'section' : 'item' }}?</p>
-      </template>
-      <template #footer>
-        <div class="flex gap-2 justify-end">
-          <UButton variant="ghost" @click="showDeleteConfirm = false">Cancel</UButton>
-          <UButton color="error" @click="executeDelete">Delete</UButton>
         </div>
       </template>
     </UModal>
