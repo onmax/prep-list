@@ -134,7 +134,7 @@ const selectedCount = computed(() => {
   return drawers.value.reduce((acc, drawer) => acc + drawer.items.filter(item => item.checked).length, 0)
 })
 
-// PDF Export
+// PDF Export (A4 with checkboxes)
 const exportPdf = () => {
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -173,6 +173,92 @@ const exportPdf = () => {
   })
 
   doc.save(`prep-list-${new Date().toISOString().split('T')[0]}.pdf`)
+}
+
+// Receipt PDF for thermal printer (72mm width = 576 dots at 203dpi)
+const generateReceiptPdf = (): string => {
+  const items = drawers.value.flatMap(d => d.items).filter(i => i.checked)
+
+  // Calculate height based on items (approx 6mm per item + header)
+  const itemHeight = 6
+  const headerHeight = 30
+  const height = headerHeight + (items.length * itemHeight) + 10
+
+  // 72mm wide receipt (80mm paper - margins)
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: [72, Math.max(height, 50)]
+  })
+
+  const pageWidth = 72
+  const margin = 4
+  let y = 8
+
+  // Title
+  doc.setFontSize(16)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Prep List', pageWidth / 2, y, { align: 'center' })
+  y += 6
+
+  // Date
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.text(tomorrow.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric'
+  }), pageWidth / 2, y, { align: 'center' })
+  y += 5
+
+  // Separator line
+  doc.setLineWidth(0.3)
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 5
+
+  // Items
+  doc.setFontSize(10)
+  items.forEach((item, i) => {
+    // Checkbox
+    doc.rect(margin, y - 3, 3, 3)
+    // Item text (truncate if too long)
+    const text = item.name.length > 28 ? item.name.substring(0, 26) + '...' : item.name
+    doc.text(`${i + 1}. ${text}`, margin + 5, y)
+    y += itemHeight
+  })
+
+  // Return base64 without data URI prefix
+  return doc.output('datauristring').split(',')[1]
+}
+
+// Print via Star PassPRNT (iOS)
+const printReceipt = () => {
+  const items = drawers.value.flatMap(d => d.items).filter(i => i.checked)
+  if (items.length === 0) return
+
+  const pdfBase64 = generateReceiptPdf()
+  const callbackUrl = window.location.origin + window.location.pathname
+
+  // Build PassPRNT URL with inline PDF
+  const params = new URLSearchParams({
+    pdf: pdfBase64,
+    size: '576',  // 80mm = 576 dots
+    back: callbackUrl
+  })
+
+  const deepLink = `starpassprnt://v1/print/nopreview?${params.toString()}`
+
+  // Try to open PassPRNT
+  const start = Date.now()
+  window.location.href = deepLink
+
+  // Fallback after 2s if app not installed
+  setTimeout(() => {
+    if (Date.now() - start < 3000) {
+      if (confirm('Star PassPRNT app not found. Open App Store to install?')) {
+        window.location.href = 'https://apps.apple.com/app/star-passprnt/id979827520'
+      }
+    }
+  }, 2000)
 }
 
 // Drawer CRUD
@@ -300,6 +386,16 @@ onMounted(checkAuth)
               @click="exportPdf"
             >
               PDF
+            </UButton>
+            <UButton
+              v-if="showSelectedOnly"
+              icon="i-heroicons-receipt-percent"
+              size="xs"
+              color="primary"
+              :disabled="selectedCount === 0"
+              @click="printReceipt"
+            >
+              Print
             </UButton>
             <UButton
               v-if="!showSelectedOnly"
