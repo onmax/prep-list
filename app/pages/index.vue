@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { jsPDF } from 'jspdf'
 import type { PrepDrawer, PrepList } from '~/utils/drawers'
 import { DRAWERS, DRAWERS_VERSION, AVAILABLE_ICONS } from '~/utils/drawers'
 
@@ -101,6 +102,47 @@ const selectedCount = computed(() => {
   return drawers.value.reduce((acc, drawer) => acc + drawer.items.filter(item => item.checked).length, 0)
 })
 
+// PDF Export
+const exportPdf = () => {
+  const doc = new jsPDF()
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const margin = 20
+  let y = margin
+
+  // Title
+  doc.setFontSize(24)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Prep List', pageWidth / 2, y, { align: 'center' })
+  y += 12
+
+  // Date (next day, since prep is done the day before)
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'normal')
+  doc.text(tomorrow.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  }), pageWidth / 2, y, { align: 'center' })
+  y += 15
+
+  // Line
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 10
+
+  // Items (flat list, numbered with checkbox)
+  doc.setFontSize(14)
+  const items = drawers.value.flatMap(d => d.items).filter(i => i.checked)
+  items.forEach((item, i) => {
+    if (y > 280) { doc.addPage(); y = margin }
+    // Draw checkbox
+    doc.rect(margin, y - 4, 5, 5)
+    doc.text(`${i + 1}. ${item.name}`, margin + 8, y)
+    y += 8
+  })
+
+  doc.save(`prep-list-${new Date().toISOString().split('T')[0]}.pdf`)
+}
+
 // Drawer CRUD
 const openAddDrawer = () => {
   editingDrawerIndex.value = null
@@ -192,6 +234,16 @@ onMounted(checkAuth)
             @click="showSelectedOnly = !showSelectedOnly"
           >
             {{ selectedCount }}
+          </UButton>
+          <UButton
+            icon="i-heroicons-document-arrow-down"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            :disabled="selectedCount === 0"
+            @click="exportPdf"
+          >
+            PDF
           </UButton>
           <UButton
             :icon="editMode ? 'i-heroicons-check' : 'i-heroicons-pencil-square'"
