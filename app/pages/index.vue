@@ -12,6 +12,11 @@ const drawers = ref<PrepDrawer[]>([])
 
 // Edit mode state
 const editMode = ref(false)
+
+const exitEditMode = async () => {
+  editMode.value = false
+  await saveList()
+}
 const showItemModal = ref(false)
 const showDrawerModal = ref(false)
 const editingDrawerIndex = ref<number | null>(null)
@@ -84,6 +89,34 @@ const toggleItem = (drawerName: string, itemName: string) => {
   if (!drawer) return
   const item = drawer.items.find(i => i.name === itemName)
   if (item) item.checked = !item.checked
+}
+
+const clearAll = () => {
+  drawers.value.forEach(drawer => {
+    drawer.items.forEach(item => {
+      item.checked = false
+    })
+  })
+}
+
+// Custom item input
+const customItemText = ref('')
+const CUSTOM_ITEM_MAX_LENGTH = 50
+
+const addCustomItem = () => {
+  const text = customItemText.value.trim()
+  if (!text) return
+
+  // Find or create "Other" section
+  let otherDrawer = drawers.value.find(d => d.name === 'Other')
+  if (!otherDrawer) {
+    otherDrawer = { name: 'Other', icon: 'i-heroicons-pencil', items: [] }
+    drawers.value.push(otherDrawer)
+  }
+
+  // Add item as checked
+  otherDrawer.items.push({ name: text, checked: true })
+  customItemText.value = ''
 }
 
 // Filter mode: show only selected items
@@ -225,35 +258,61 @@ onMounted(checkAuth)
       <div class="flex justify-between items-center sticky top-0 bg-white dark:bg-gray-950 py-1 z-10 mb-2">
         <h1 class="text-lg font-bold">Prep</h1>
         <div class="flex items-center gap-2">
-          <UButton
-            :icon="showSelectedOnly ? 'i-heroicons-eye' : 'i-heroicons-eye-slash'"
-            size="xs"
-            :color="showSelectedOnly ? 'primary' : 'neutral'"
-            :variant="showSelectedOnly ? 'solid' : 'ghost'"
-            @click="showSelectedOnly = !showSelectedOnly"
-          >
-            {{ selectedCount }}
-          </UButton>
-          <UButton
-            icon="i-heroicons-document-arrow-down"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            :disabled="selectedCount === 0"
-            @click="exportPdf"
-          >
-            PDF
-          </UButton>
-          <UButton
-            :icon="editMode ? 'i-heroicons-check' : 'i-heroicons-pencil-square'"
-            size="xs"
-            :color="editMode ? 'primary' : 'neutral'"
-            :variant="editMode ? 'solid' : 'ghost'"
-            @click="editMode = !editMode"
-          >
-            {{ editMode ? 'Done' : 'Edit' }}
-          </UButton>
-          <UButton :loading="saving" icon="i-heroicons-arrow-down-tray" size="xs" color="primary" @click="saveList">Save</UButton>
+          <template v-if="editMode">
+            <UButton
+              :loading="saving"
+              icon="i-heroicons-check"
+              size="xs"
+              color="primary"
+              @click="exitEditMode"
+            >
+              Done
+            </UButton>
+          </template>
+          <template v-else>
+            <UButton
+              :icon="showSelectedOnly ? 'i-heroicons-eye' : 'i-heroicons-eye-slash'"
+              size="xs"
+              :color="showSelectedOnly ? 'primary' : 'neutral'"
+              :variant="showSelectedOnly ? 'solid' : 'ghost'"
+              @click="showSelectedOnly = !showSelectedOnly"
+            >
+              {{ selectedCount }}
+            </UButton>
+            <UButton
+              v-if="!showSelectedOnly"
+              icon="i-heroicons-x-circle"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              :disabled="selectedCount === 0"
+              @click="clearAll"
+            >
+              Clear
+            </UButton>
+            <UButton
+              v-if="showSelectedOnly"
+              icon="i-heroicons-document-arrow-down"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              :disabled="selectedCount === 0"
+              @click="exportPdf"
+            >
+              PDF
+            </UButton>
+            <UButton
+              v-if="!showSelectedOnly"
+              icon="i-heroicons-pencil-square"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              @click="editMode = true"
+            >
+              Edit
+            </UButton>
+            <UButton :loading="saving" icon="i-heroicons-arrow-down-tray" size="xs" color="primary" @click="saveList">Save</UButton>
+          </template>
         </div>
       </div>
 
@@ -308,6 +367,25 @@ onMounted(checkAuth)
           @click="openAddDrawer"
         >
           Add Section
+        </UButton>
+      </div>
+
+      <!-- Custom item input -->
+      <div v-if="!editMode" class="mt-4 flex gap-2">
+        <UInput
+          v-model="customItemText"
+          :maxlength="CUSTOM_ITEM_MAX_LENGTH"
+          placeholder="Add custom item..."
+          class="flex-1"
+          @keyup.enter="addCustomItem"
+        />
+        <UButton
+          icon="i-heroicons-plus"
+          color="primary"
+          :disabled="!customItemText.trim()"
+          @click="addCustomItem"
+        >
+          Add
         </UButton>
       </div>
     </UMain>
