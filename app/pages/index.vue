@@ -72,7 +72,6 @@ const saveList = async () => {
   try {
     await $fetch('/api/list', { method: 'POST', body: { drawers: drawers.value, version: DRAWERS_VERSION }, cache: 'no-store' })
     console.log('Saved successfully')
-    await fetchList()
   } catch (error) {
     console.error('Failed to save list', error)
   } finally {
