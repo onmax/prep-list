@@ -2,6 +2,8 @@
 import { jsPDF } from 'jspdf'
 import type { PrepDrawer, PrepList } from '~/utils/drawers'
 import { DRAWERS, DRAWERS_VERSION, AVAILABLE_ICONS } from '~/utils/drawers'
+import type { Recipe, RecipeCategory, RecipesBook } from '~/utils/recipes'
+import { DEFAULT_CATEGORIES, RECIPES_VERSION } from '~/utils/recipes'
 
 const authExpiry = useLocalStorage<number | null>('prep-auth-expiry', null)
 const authenticated = ref(false)
@@ -9,6 +11,22 @@ const pin = ref<string[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const drawers = ref<PrepDrawer[]>([])
+
+// Navigation state
+type AppView = 'menu' | 'prep-list' | 'recipes'
+const currentView = ref<AppView>('menu')
+
+// Recipes state
+const recipeCategories = ref<RecipeCategory[]>([])
+const recipesEditMode = ref(false)
+const savingRecipes = ref(false)
+const showRecipeModal = ref(false)
+const showRecipeCategoryModal = ref(false)
+const editingCategoryIndex = ref<number | null>(null)
+const editingRecipeIndex = ref<number | null>(null)
+const editingCategory = ref({ name: '', icon: 'i-heroicons-beaker' })
+const editingRecipe = ref<{ name: string, ingredients: string[], instructions: string }>({ name: '', ingredients: [''], instructions: '' })
+const expandedRecipeId = ref<string | null>(null)
 
 // Edit mode state
 const editMode = ref(false)
@@ -484,6 +502,379 @@ const printOrderList = () => {
   sendToPrinter(pdfBase64)
 }
 
+// ============ NAVIGATION ============
+const goToMenu = () => {
+  currentView.value = 'menu'
+}
+
+const goToPrepList = async () => {
+  currentView.value = 'prep-list'
+  if (drawers.value.length === 0) {
+    await fetchList()
+  }
+}
+
+const goToRecipes = async () => {
+  currentView.value = 'recipes'
+  if (recipeCategories.value.length === 0) {
+    await fetchRecipes()
+  }
+}
+
+// ============ RECIPES ============
+const setDefaultRecipeCategories = () => {
+  recipeCategories.value = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES))
+}
+
+const fetchRecipes = async () => {
+  try {
+    const data = await $fetch('/api/recipes', { cache: 'no-store', query: { t: Date.now() } }) as RecipesBook | null
+    console.log('Fetched recipes from KV:', data)
+    if (data?.categories && data?.version === RECIPES_VERSION) {
+      recipeCategories.value = data.categories
+      return
+    }
+    console.log('No recipes or version mismatch, using defaults')
+  } catch (error) {
+    console.error('Failed to fetch recipes, using defaults', error)
+  }
+  setDefaultRecipeCategories()
+}
+
+const saveRecipes = async () => {
+  savingRecipes.value = true
+  console.log('Saving recipes to KV:', recipeCategories.value)
+  try {
+    await $fetch('/api/recipes', { method: 'POST', body: { categories: recipeCategories.value, version: RECIPES_VERSION }, cache: 'no-store' })
+    console.log('Recipes saved successfully')
+  } catch (error) {
+    console.error('Failed to save recipes', error)
+  } finally {
+    savingRecipes.value = false
+  }
+}
+
+// Auto-save helper for recipes
+const autoSaveRecipes = () => {
+  saveRecipes()
+}
+
+// Recipe Category CRUD
+const openAddCategory = () => {
+  editingCategoryIndex.value = null
+  editingCategory.value = { name: '', icon: 'i-heroicons-beaker' }
+  showRecipeCategoryModal.value = true
+}
+
+const openEditCategory = (index: number) => {
+  const category = recipeCategories.value[index]
+  editingCategoryIndex.value = index
+  editingCategory.value = { name: category.name, icon: category.icon }
+  showRecipeCategoryModal.value = true
+}
+
+const saveCategory = () => {
+  if (!editingCategory.value.name.trim()) return
+  if (editingCategoryIndex.value === null) {
+    recipeCategories.value.push({
+      id: `cat-${Date.now()}`,
+      name: editingCategory.value.name.trim(),
+      icon: editingCategory.value.icon,
+      recipes: []
+    })
+  } else {
+    recipeCategories.value[editingCategoryIndex.value].name = editingCategory.value.name.trim()
+    recipeCategories.value[editingCategoryIndex.value].icon = editingCategory.value.icon
+  }
+  showRecipeCategoryModal.value = false
+  autoSaveRecipes()
+}
+
+const deleteCategory = (index: number) => {
+  recipeCategories.value.splice(index, 1)
+  autoSaveRecipes()
+}
+
+// Recipe CRUD
+const openAddRecipe = (categoryIndex: number) => {
+  editingCategoryIndex.value = categoryIndex
+  editingRecipeIndex.value = null
+  editingRecipe.value = { name: '', ingredients: [''], instructions: '' }
+  showRecipeModal.value = true
+}
+
+const openEditRecipe = (categoryIndex: number, recipeIndex: number) => {
+  const recipe = recipeCategories.value[categoryIndex].recipes[recipeIndex]
+  editingCategoryIndex.value = categoryIndex
+  editingRecipeIndex.value = recipeIndex
+  editingRecipe.value = {
+    name: recipe.name,
+    ingredients: [...recipe.ingredients],
+    instructions: recipe.instructions
+  }
+  showRecipeModal.value = true
+}
+
+const saveRecipe = () => {
+  if (editingCategoryIndex.value === null || !editingRecipe.value.name.trim()) return
+  const filteredIngredients = editingRecipe.value.ingredients.filter(i => i.trim())
+  if (editingRecipeIndex.value === null) {
+    recipeCategories.value[editingCategoryIndex.value].recipes.push({
+      id: `recipe-${Date.now()}`,
+      name: editingRecipe.value.name.trim(),
+      ingredients: filteredIngredients,
+      instructions: editingRecipe.value.instructions.trim()
+    })
+  } else {
+    const recipe = recipeCategories.value[editingCategoryIndex.value].recipes[editingRecipeIndex.value]
+    recipe.name = editingRecipe.value.name.trim()
+    recipe.ingredients = filteredIngredients
+    recipe.instructions = editingRecipe.value.instructions.trim()
+  }
+  showRecipeModal.value = false
+  autoSaveRecipes()
+}
+
+const deleteRecipe = (categoryIndex: number, recipeIndex: number) => {
+  recipeCategories.value[categoryIndex].recipes.splice(recipeIndex, 1)
+  autoSaveRecipes()
+}
+
+const addIngredient = () => {
+  editingRecipe.value.ingredients.push('')
+}
+
+const removeIngredient = (index: number) => {
+  editingRecipe.value.ingredients.splice(index, 1)
+  if (editingRecipe.value.ingredients.length === 0) {
+    editingRecipe.value.ingredients.push('')
+  }
+}
+
+const toggleRecipeExpand = (recipeId: string) => {
+  expandedRecipeId.value = expandedRecipeId.value === recipeId ? null : recipeId
+}
+
+// Recipe Printing
+const generateRecipePdf = (recipe: Recipe): string => {
+  // Calculate height based on content
+  const ingredientHeight = recipe.ingredients.length * 5
+  const instructionLines = Math.ceil(recipe.instructions.length / 35)
+  const instructionHeight = instructionLines * 5
+  const totalHeight = 45 + ingredientHeight + instructionHeight + 20
+
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: [72, Math.max(totalHeight, 80)]
+  })
+
+  const pageWidth = 72
+  const margin = 4
+  let y = 8
+
+  // Recipe name
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.text(recipe.name, pageWidth / 2, y, { align: 'center' })
+  y += 8
+
+  // Separator
+  doc.setLineWidth(0.3)
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 5
+
+  // Ingredients header
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text('INGREDIENTS', margin, y)
+  y += 5
+
+  // Ingredients list
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  recipe.ingredients.forEach(ingredient => {
+    const text = ingredient.length > 32 ? ingredient.substring(0, 30) + '...' : ingredient
+    doc.text(`- ${text}`, margin, y)
+    y += 5
+  })
+
+  y += 3
+
+  // Instructions header
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.text('INSTRUCTIONS', margin, y)
+  y += 5
+
+  // Instructions text
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  const lines = doc.splitTextToSize(recipe.instructions, pageWidth - (margin * 2))
+  doc.text(lines, margin, y)
+
+  return doc.output('datauristring').split(',')[1]
+}
+
+const printRecipe = (recipe: Recipe) => {
+  const pdfBase64 = generateRecipePdf(recipe)
+  sendToPrinter(pdfBase64)
+}
+
+// Check if ingredient is in Order List
+const isIngredientInOrder = (ingredient: string) => {
+  return orderItems.value.includes(ingredient)
+}
+
+// Toggle ingredient in Order List (OL)
+const toggleIngredientInOrder = async (ingredient: string) => {
+  const index = orderItems.value.indexOf(ingredient)
+  if (index >= 0) {
+    // Remove from order list
+    orderItems.value.splice(index, 1)
+    await saveOrderList()
+  } else {
+    // Add to order list
+    await addOrderItem(ingredient)
+  }
+}
+
+// Check if step is in Prep List (Other drawer)
+const isStepInPrep = (step: string) => {
+  const otherDrawer = drawers.value.find(d => d.name === 'Other')
+  if (!otherDrawer) return false
+  return otherDrawer.items.some(item => item.name === step)
+}
+
+// Toggle step in Prep List / To Do (TD)
+const toggleStepInPrep = async (step: string) => {
+  let otherDrawer = drawers.value.find(d => d.name === 'Other')
+
+  if (otherDrawer) {
+    const itemIndex = otherDrawer.items.findIndex(item => item.name === step)
+    if (itemIndex >= 0) {
+      // Remove from prep list
+      otherDrawer.items.splice(itemIndex, 1)
+      return
+    }
+  }
+
+  // Add to prep list
+  await addCustomItem(step)
+}
+
+// Parse recipe instructions into individual steps
+const getRecipeSteps = (instructions: string): string[] => {
+  if (!instructions) return []
+  // Split by newlines, filter empty lines
+  const steps = instructions.split('\n').map(s => s.trim()).filter(s => s.length > 0)
+  // If no newlines, return as single step
+  return steps.length > 0 ? steps : [instructions]
+}
+
+// Check if all ingredients are selected
+const areAllIngredientsSelected = (recipe: Recipe) => {
+  if (recipe.ingredients.length === 0) return false
+  return recipe.ingredients.every(ing => isIngredientInOrder(ing))
+}
+
+// Toggle all ingredients
+const toggleAllIngredients = async (recipe: Recipe) => {
+  if (areAllIngredientsSelected(recipe)) {
+    // Remove all ingredients from order list
+    for (const ing of recipe.ingredients) {
+      const index = orderItems.value.indexOf(ing)
+      if (index >= 0) {
+        orderItems.value.splice(index, 1)
+      }
+    }
+    await saveOrderList()
+  } else {
+    // Add all ingredients to order list
+    for (const ing of recipe.ingredients) {
+      if (!isIngredientInOrder(ing)) {
+        await addOrderItem(ing)
+      }
+    }
+  }
+}
+
+// Check if all steps are selected
+const areAllStepsSelected = (recipe: Recipe) => {
+  const steps = getRecipeSteps(recipe.instructions)
+  if (steps.length === 0) return false
+  return steps.every(step => isStepInPrep(step))
+}
+
+// Toggle all steps
+const toggleAllSteps = async (recipe: Recipe) => {
+  const steps = getRecipeSteps(recipe.instructions)
+  if (areAllStepsSelected(recipe)) {
+    // Remove all steps from prep list
+    const otherDrawer = drawers.value.find(d => d.name === 'Other')
+    if (otherDrawer) {
+      for (const step of steps) {
+        const itemIndex = otherDrawer.items.findIndex(item => item.name === step)
+        if (itemIndex >= 0) {
+          otherDrawer.items.splice(itemIndex, 1)
+        }
+      }
+    }
+  } else {
+    // Add all steps to prep list
+    for (const step of steps) {
+      if (!isStepInPrep(step)) {
+        await addCustomItem(step)
+      }
+    }
+  }
+}
+
+// Check if whole recipe is selected (all ingredients + all steps)
+const isWholeRecipeSelected = (recipe: Recipe) => {
+  return areAllIngredientsSelected(recipe) && areAllStepsSelected(recipe)
+}
+
+// Toggle whole recipe
+const toggleWholeRecipe = async (recipe: Recipe) => {
+  if (isWholeRecipeSelected(recipe)) {
+    // Deselect all
+    await toggleAllIngredients(recipe)
+    await toggleAllSteps(recipe)
+  } else {
+    // Select all that aren't selected
+    if (!areAllIngredientsSelected(recipe)) {
+      await toggleAllIngredients(recipe)
+    }
+    if (!areAllStepsSelected(recipe)) {
+      await toggleAllSteps(recipe)
+    }
+  }
+}
+
+// Clear all recipe selections from OL and TD
+const clearAllFromRecipes = async () => {
+  // Clear Order List
+  orderItems.value = []
+  await saveOrderList()
+
+  // Clear "Other" drawer items (where recipe steps are added)
+  const otherDrawer = drawers.value.find(d => d.name === 'Other')
+  if (otherDrawer) {
+    otherDrawer.items = []
+  }
+
+  // Uncheck all items in all drawers
+  for (const drawer of drawers.value) {
+    for (const item of drawer.items) {
+      item.checked = false
+    }
+  }
+}
+
+const exitRecipesEditMode = () => {
+  recipesEditMode.value = false
+}
+
 // Drawer CRUD
 const openAddDrawer = () => {
   editingDrawerIndex.value = null
@@ -555,6 +946,7 @@ onMounted(checkAuth)
 
 <template>
   <UApp>
+    <!-- PIN Entry -->
     <UMain v-if="!authenticated" class="flex items-center justify-center min-h-screen">
       <div class="flex flex-col items-center gap-3 p-4">
         <h2 class="text-lg font-semibold">Enter PIN</h2>
@@ -563,9 +955,42 @@ onMounted(checkAuth)
       </div>
     </UMain>
 
-    <UMain v-else class="p-2">
-      <div class="flex justify-between items-center sticky top-0 bg-white dark:bg-gray-950 py-1 z-10 mb-2">
-        <h1 class="text-lg font-bold">Prep</h1>
+    <!-- Menu -->
+    <UMain v-else-if="currentView === 'menu'" class="flex items-center justify-center min-h-screen">
+      <div class="flex flex-col gap-4 w-full max-w-xs p-4">
+        <h1 class="text-2xl font-bold text-center mb-4">Menu</h1>
+        <UButton size="xl" block icon="i-heroicons-clipboard-document-list" @click="goToPrepList">
+          Prep List
+        </UButton>
+        <UButton size="xl" block icon="i-heroicons-book-open" @click="goToRecipes">
+          Recipes Book
+        </UButton>
+      </div>
+    </UMain>
+
+    <!-- Prep List View -->
+    <UMain v-else-if="currentView === 'prep-list'" class="p-2">
+      <div class="sticky top-0 bg-white dark:bg-gray-950 py-1 z-10 mb-2 space-y-2">
+        <!-- Tab Navigation -->
+        <div class="flex items-center gap-2">
+          <UButton icon="i-heroicons-arrow-left" size="xs" variant="ghost" @click="goToMenu" />
+          <div class="flex-1 flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+            <button
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all bg-white dark:bg-gray-700 text-green-600 dark:text-green-400 shadow-sm"
+            >
+              <UIcon name="i-heroicons-clipboard-document-list" class="w-4 h-4" />
+              Prep
+            </button>
+            <button
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all text-gray-500 dark:text-gray-400 hover:text-rose-500 dark:hover:text-rose-400"
+              @click="goToRecipes"
+            >
+              <UIcon name="i-heroicons-book-open" class="w-4 h-4" />
+              Recipes
+            </button>
+          </div>
+        </div>
+        <!-- Action bar -->
         <div class="flex items-center gap-2">
           <template v-if="editMode">
             <UButton
@@ -635,12 +1060,12 @@ onMounted(checkAuth)
         </div>
       </div>
 
-      <!-- PREP LIST SECTION -->
+      <!-- TO DO SECTION (TD) -->
       <div class="bg-green-50 dark:bg-green-950/30 rounded-lg p-3 border border-green-200 dark:border-green-800">
-        <div class="flex items-center gap-2 mb-3 pb-2 border-b border-green-200 dark:border-green-700">
-          <UIcon name="i-heroicons-beaker" class="w-5 h-5 text-green-600" />
-          <h2 class="text-sm font-bold uppercase tracking-wide text-green-600">Prep List</h2>
-          <span v-if="selectedCount > 0" class="text-xs text-green-600">({{ selectedCount }} selected)</span>
+        <div class="flex items-center gap-2 mb-3 pb-2 border-b border-green-200 dark:border-green-700 -mx-3 -mt-3 px-3 pt-3 bg-green-500 dark:bg-green-700 rounded-t-lg">
+          <UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-white" />
+          <h2 class="text-sm font-bold uppercase tracking-wide text-white">To Do</h2>
+          <span v-if="selectedCount > 0" class="text-xs text-white/80">({{ selectedCount }} selected)</span>
         </div>
 
       <!-- Custom item input with autocomplete -->
@@ -749,15 +1174,15 @@ onMounted(checkAuth)
           Add Section
         </UButton>
       </div>
-      </div><!-- End Prep List Section -->
+      </div><!-- End To Do Section -->
 
-      <!-- ORDER LIST SECTION -->
-      <div v-if="!editMode" class="mt-4 bg-sky-50 dark:bg-sky-950/30 rounded-lg p-3 border border-sky-200 dark:border-sky-800">
-        <div class="flex items-center justify-between mb-3 pb-2 border-b border-sky-200 dark:border-sky-700">
+      <!-- ORDER LIST SECTION (OL) -->
+      <div v-if="!editMode" class="mt-4 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800 overflow-hidden">
+        <div class="flex items-center justify-between p-3 bg-amber-500 dark:bg-amber-700">
           <div class="flex items-center gap-2">
-            <UIcon name="i-heroicons-truck" class="w-5 h-5 text-sky-600" />
-            <h2 class="text-sm font-bold uppercase tracking-wide text-sky-600">Order List</h2>
-            <span v-if="orderItems.length > 0" class="text-xs text-sky-600">({{ orderItems.length }})</span>
+            <UIcon name="i-heroicons-truck" class="w-5 h-5 text-white" />
+            <h2 class="text-sm font-bold uppercase tracking-wide text-white">Order List</h2>
+            <span v-if="orderItems.length > 0" class="text-xs text-white/80">({{ orderItems.length }})</span>
           </div>
           <div class="flex items-center gap-1">
             <UButton
@@ -781,6 +1206,7 @@ onMounted(checkAuth)
             </UButton>
           </div>
         </div>
+        <div class="p-3">
 
         <!-- Order item input with autocomplete -->
         <div class="mb-3 relative">
@@ -804,7 +1230,7 @@ onMounted(checkAuth)
                   v-for="suggestion in filteredOrderSuggestions"
                   :key="`${suggestion.source}-${suggestion.name}`"
                   class="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex justify-between items-center"
-                  :class="{ 'bg-blue-50 dark:bg-blue-900/20 font-medium': suggestion.name.toLowerCase() === orderItemText.trim().toLowerCase() }"
+                  :class="{ 'bg-amber-50 dark:bg-amber-900/20 font-medium': suggestion.name.toLowerCase() === orderItemText.trim().toLowerCase() }"
                   @mousedown.prevent="addOrderItem(suggestion.name)"
                 >
                   <span>{{ suggestion.name }}</span>
@@ -824,25 +1250,262 @@ onMounted(checkAuth)
         </div>
 
         <!-- Divider line -->
-        <div class="border-b border-sky-200 dark:border-sky-700 my-2"></div>
+        <div class="border-b border-amber-200 dark:border-amber-700 my-2"></div>
 
         <!-- Order items list -->
         <div v-if="orderItems.length > 0" class="flex flex-wrap gap-1">
           <button
             v-for="(item, index) in orderItems"
             :key="`order-${index}-${item}`"
-            class="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border bg-sky-500 dark:bg-sky-600 border-sky-600 dark:border-sky-500 text-white font-medium hover:bg-sky-600 dark:hover:bg-sky-700 transition-colors"
+            class="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border bg-amber-500 dark:bg-amber-600 border-amber-600 dark:border-amber-500 text-white font-medium hover:bg-amber-600 dark:hover:bg-amber-700 transition-colors"
             @click="removeOrderItem(index)"
           >
             {{ item }}
             <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
           </button>
         </div>
-        <div v-else class="text-xs text-sky-400 dark:text-sky-500 italic">
+        <div v-else class="text-xs text-amber-400 dark:text-amber-500 italic">
           No order items yet
+        </div>
         </div>
       </div>
 
+    </UMain>
+
+    <!-- Recipes Book View -->
+    <UMain v-else-if="currentView === 'recipes'" class="p-2">
+      <div class="sticky top-0 bg-white dark:bg-gray-950 py-1 z-10 mb-2 space-y-2">
+        <!-- Tab Navigation -->
+        <div class="flex items-center gap-2">
+          <UButton icon="i-heroicons-arrow-left" size="xs" variant="ghost" @click="goToMenu" />
+          <div class="flex-1 flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+            <button
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all text-gray-500 dark:text-gray-400 hover:text-green-500 dark:hover:text-green-400"
+              @click="goToPrepList"
+            >
+              <UIcon name="i-heroicons-clipboard-document-list" class="w-4 h-4" />
+              Prep
+            </button>
+            <button
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-400 shadow-sm"
+            >
+              <UIcon name="i-heroicons-book-open" class="w-4 h-4" />
+              Recipes
+            </button>
+          </div>
+          <!-- Edit button -->
+          <template v-if="recipesEditMode">
+            <UButton icon="i-heroicons-check" size="xs" color="primary" @click="exitRecipesEditMode">Done</UButton>
+          </template>
+          <template v-else>
+            <UButton icon="i-heroicons-pencil-square" size="xs" color="neutral" variant="ghost" @click="recipesEditMode = true">Edit</UButton>
+          </template>
+        </div>
+
+        <!-- Status bar -->
+        <div class="flex items-center gap-2 text-xs">
+          <div class="flex items-center gap-1 px-2 py-1 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+            <UIcon name="i-heroicons-clipboard-document-list" class="w-3.5 h-3.5" />
+            <span class="font-medium">TD: {{ selectedCount }}</span>
+          </div>
+          <div class="flex items-center gap-1 px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+            <UIcon name="i-heroicons-truck" class="w-3.5 h-3.5" />
+            <span class="font-medium">OL: {{ orderItems.length }}</span>
+          </div>
+          <div class="flex-1"></div>
+          <UButton
+            icon="i-heroicons-x-circle"
+            size="xs"
+            color="error"
+            variant="soft"
+            :disabled="selectedCount === 0 && orderItems.length === 0"
+            @click="clearAllFromRecipes"
+          >
+            Clear All
+          </UButton>
+        </div>
+      </div>
+
+      <!-- Recipe Categories -->
+      <div class="space-y-3">
+        <template v-for="(category, categoryIndex) in recipeCategories" :key="category.id">
+          <div class="bg-rose-50 dark:bg-rose-950/30 rounded-lg border border-rose-200 dark:border-rose-800 overflow-hidden">
+            <!-- Category Header -->
+            <div class="flex items-center justify-between p-3 bg-rose-400 dark:bg-rose-700">
+              <div class="flex items-center gap-2">
+                <UIcon :name="category.icon" class="w-5 h-5 text-white" />
+                <h2 class="text-sm font-bold uppercase tracking-wide text-white">{{ category.name }}</h2>
+                <span v-if="category.recipes.length > 0" class="text-xs text-white/80">({{ category.recipes.length }})</span>
+              </div>
+              <div v-if="recipesEditMode" class="flex gap-1">
+                <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" @click="openEditCategory(categoryIndex)" />
+                <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="deleteCategory(categoryIndex)" />
+              </div>
+            </div>
+
+            <!-- Recipes in Category -->
+            <div class="p-3 space-y-2">
+              <template v-for="(recipe, recipeIndex) in category.recipes" :key="recipe.id">
+                <div class="bg-white dark:bg-gray-800 rounded-lg border border-rose-200 dark:border-rose-700 shadow-sm overflow-hidden">
+                  <!-- Recipe Header - Name with Add All & Print -->
+                  <div class="flex items-center justify-between p-3 bg-rose-100 dark:bg-rose-900/30 border-b border-rose-200 dark:border-rose-700">
+                    <span class="font-semibold text-rose-800 dark:text-rose-200">{{ recipe.name }}</span>
+                    <div class="flex items-center gap-1">
+                      <button
+                        class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all"
+                        :class="isWholeRecipeSelected(recipe)
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-800 border border-rose-300 dark:border-rose-600'"
+                        @click="toggleWholeRecipe(recipe)"
+                      >
+                        <UIcon :name="isWholeRecipeSelected(recipe) ? 'i-heroicons-check' : 'i-heroicons-plus'" class="w-3.5 h-3.5" />
+                        {{ isWholeRecipeSelected(recipe) ? 'Added' : 'Add All' }}
+                      </button>
+                      <UButton
+                        icon="i-heroicons-printer"
+                        size="2xs"
+                        variant="ghost"
+                        color="primary"
+                        @click="printRecipe(recipe)"
+                      />
+                      <template v-if="recipesEditMode">
+                        <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" @click="openEditRecipe(categoryIndex, recipeIndex)" />
+                        <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="deleteRecipe(categoryIndex, recipeIndex)" />
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Recipe Content -->
+                  <div class="p-3 space-y-3">
+                    <!-- Ingredients Section - Always visible -->
+                    <div>
+                      <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-2">
+                          <UIcon name="i-heroicons-shopping-cart" class="w-4 h-4 text-amber-500" />
+                          Ingredients
+                        </h4>
+                        <button
+                          class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all"
+                          :class="areAllIngredientsSelected(recipe)
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200'"
+                          @click="toggleAllIngredients(recipe)"
+                        >
+                          <UIcon :name="areAllIngredientsSelected(recipe) ? 'i-heroicons-x-mark' : 'i-heroicons-arrow-up-tray'" class="w-3 h-3" />
+                          {{ areAllIngredientsSelected(recipe) ? 'Clear OL' : 'All → OL' }}
+                        </button>
+                      </div>
+                      <ul class="space-y-1">
+                        <li
+                          v-for="(ingredient, i) in recipe.ingredients"
+                          :key="i"
+                          class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all"
+                          :class="isIngredientInOrder(ingredient)
+                            ? 'bg-amber-100 dark:bg-amber-900/40 border border-amber-400 dark:border-amber-600'
+                            : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
+                          @click="toggleIngredientInOrder(ingredient)"
+                        >
+                          <UIcon
+                            :name="isIngredientInOrder(ingredient) ? 'i-heroicons-check-circle-solid' : 'i-heroicons-plus-circle'"
+                            class="w-5 h-5 flex-shrink-0"
+                            :class="isIngredientInOrder(ingredient) ? 'text-amber-500' : 'text-gray-400'"
+                          />
+                          <span
+                            class="text-sm"
+                            :class="isIngredientInOrder(ingredient) ? 'text-amber-700 dark:text-amber-300 font-medium' : ''"
+                          >
+                            {{ ingredient }}
+                          </span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <!-- Steps Section - Collapsible -->
+                    <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+                      <div
+                        class="flex items-center justify-between mb-2 cursor-pointer"
+                        @click="toggleRecipeExpand(recipe.id)"
+                      >
+                        <h4 class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-2">
+                          <UIcon
+                            :name="expandedRecipeId === recipe.id ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
+                            class="w-4 h-4 text-gray-400"
+                          />
+                          <UIcon name="i-heroicons-clipboard-document-list" class="w-4 h-4 text-green-500" />
+                          Steps
+                          <span class="text-gray-400 font-normal">({{ getRecipeSteps(recipe.instructions).length }})</span>
+                        </h4>
+                        <button
+                          class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all"
+                          :class="areAllStepsSelected(recipe)
+                            ? 'bg-green-500 text-white'
+                            : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200'"
+                          @click.stop="toggleAllSteps(recipe)"
+                        >
+                          <UIcon :name="areAllStepsSelected(recipe) ? 'i-heroicons-x-mark' : 'i-heroicons-arrow-up-tray'" class="w-3 h-3" />
+                          {{ areAllStepsSelected(recipe) ? 'Clear TD' : 'All → TD' }}
+                        </button>
+                      </div>
+                      <!-- Steps list - Expandable -->
+                      <ul v-if="expandedRecipeId === recipe.id" class="space-y-1">
+                        <li
+                          v-for="(step, i) in getRecipeSteps(recipe.instructions)"
+                          :key="i"
+                          class="flex items-start gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all"
+                          :class="isStepInPrep(step)
+                            ? 'bg-green-100 dark:bg-green-900/40 border border-green-400 dark:border-green-600'
+                            : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
+                          @click="toggleStepInPrep(step)"
+                        >
+                          <UIcon
+                            :name="isStepInPrep(step) ? 'i-heroicons-check-circle-solid' : 'i-heroicons-plus-circle'"
+                            class="w-5 h-5 flex-shrink-0 mt-0.5"
+                            :class="isStepInPrep(step) ? 'text-green-500' : 'text-gray-400'"
+                          />
+                          <span
+                            class="text-sm"
+                            :class="isStepInPrep(step) ? 'text-green-700 dark:text-green-300 font-medium' : ''"
+                          >
+                            {{ step }}
+                          </span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Add Recipe Button -->
+              <UButton
+                v-if="recipesEditMode"
+                icon="i-heroicons-plus"
+                size="xs"
+                variant="outline"
+                class="w-full"
+                @click="openAddRecipe(categoryIndex)"
+              >
+                Add Recipe
+              </UButton>
+
+              <!-- Empty state -->
+              <div v-if="category.recipes.length === 0 && !recipesEditMode" class="text-xs text-rose-400 dark:text-rose-500 italic py-2">
+                No recipes in this category
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Add Category Button -->
+        <UButton
+          v-if="recipesEditMode"
+          icon="i-heroicons-plus"
+          variant="outline"
+          class="w-full"
+          @click="openAddCategory"
+        >
+          Add Category
+        </UButton>
+      </div>
     </UMain>
 
     <!-- Item Modal -->
@@ -926,6 +1589,103 @@ onMounted(checkAuth)
       <template #footer>
         <div class="flex justify-end">
           <UButton variant="ghost" @click="showPreviousItemsModal = false">Close</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Recipe Category Modal -->
+    <UModal v-model:open="showRecipeCategoryModal">
+      <template #header>
+        <h3 class="font-semibold">{{ editingCategoryIndex === null ? 'Add Category' : 'Edit Category' }}</h3>
+      </template>
+      <template #body>
+        <div class="space-y-4">
+          <UInput
+            v-model="editingCategory.name"
+            placeholder="Category name"
+            autofocus
+          />
+          <div>
+            <label class="text-xs text-gray-500 mb-2 block">Icon</label>
+            <div class="grid grid-cols-8 gap-2">
+              <button
+                v-for="icon in AVAILABLE_ICONS"
+                :key="icon"
+                class="p-2 rounded border transition-colors"
+                :class="editingCategory.icon === icon ? 'border-rose-500 bg-rose-50 dark:bg-rose-900/20' : 'border-gray-200 dark:border-gray-700'"
+                @click="editingCategory.icon = icon"
+              >
+                <UIcon :name="icon" class="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" @click="showRecipeCategoryModal = false">Cancel</UButton>
+          <UButton color="primary" @click="saveCategory">Save</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Recipe Modal -->
+    <UModal v-model:open="showRecipeModal">
+      <template #header>
+        <h3 class="font-semibold">{{ editingRecipeIndex === null ? 'Add Recipe' : 'Edit Recipe' }}</h3>
+      </template>
+      <template #body>
+        <div class="space-y-4">
+          <UInput
+            v-model="editingRecipe.name"
+            placeholder="Recipe name"
+            autofocus
+          />
+
+          <!-- Ingredients -->
+          <div>
+            <label class="text-xs text-gray-500 mb-2 block">Ingredients</label>
+            <div class="space-y-2">
+              <div v-for="(ingredient, index) in editingRecipe.ingredients" :key="index" class="flex gap-2">
+                <UInput
+                  v-model="editingRecipe.ingredients[index]"
+                  placeholder="Ingredient"
+                  class="flex-1"
+                />
+                <UButton
+                  icon="i-heroicons-x-mark"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  @click="removeIngredient(index)"
+                />
+              </div>
+              <UButton
+                icon="i-heroicons-plus"
+                size="xs"
+                variant="outline"
+                @click="addIngredient"
+              >
+                Add Ingredient
+              </UButton>
+            </div>
+          </div>
+
+          <!-- Instructions -->
+          <div>
+            <label class="text-xs text-gray-500 mb-2 block">Instructions</label>
+            <UTextarea
+              v-model="editingRecipe.instructions"
+              placeholder="Step by step instructions..."
+              :rows="4"
+            />
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" @click="showRecipeModal = false">Cancel</UButton>
+          <UButton color="primary" @click="saveRecipe">Save</UButton>
         </div>
       </template>
     </UModal>
