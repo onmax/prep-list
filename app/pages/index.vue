@@ -871,8 +871,9 @@ const clearAllFromRecipes = async () => {
   }
 }
 
-const exitRecipesEditMode = () => {
+const exitRecipesEditMode = async () => {
   recipesEditMode.value = false
+  await saveRecipes()
 }
 
 // Drawer CRUD
@@ -1017,7 +1018,7 @@ onMounted(checkAuth)
               v-if="!showSelectedOnly"
               icon="i-heroicons-x-circle"
               size="xs"
-              color="neutral"
+              color="primary"
               variant="ghost"
               :disabled="selectedCount === 0"
               @click="clearAll"
@@ -1049,7 +1050,7 @@ onMounted(checkAuth)
               v-if="!showSelectedOnly"
               icon="i-heroicons-pencil-square"
               size="xs"
-              color="neutral"
+              color="primary"
               variant="ghost"
               @click="editMode = true"
             >
@@ -1127,7 +1128,7 @@ onMounted(checkAuth)
             <div class="flex items-center justify-between mb-1">
               <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{{ drawer.name }}</div>
               <div v-if="editMode" class="flex gap-1">
-                <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" @click="openEditDrawer(drawerIndex)" />
+                <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" color="primary" @click="openEditDrawer(drawerIndex)" />
                 <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="deleteDrawer(drawerIndex)" />
               </div>
             </div>
@@ -1198,7 +1199,7 @@ onMounted(checkAuth)
               v-if="orderItems.length > 0"
               icon="i-heroicons-x-circle"
               size="xs"
-              color="neutral"
+              color="primary"
               variant="ghost"
               @click="clearOrderList"
             >
@@ -1295,10 +1296,10 @@ onMounted(checkAuth)
           </div>
           <!-- Edit button -->
           <template v-if="recipesEditMode">
-            <UButton icon="i-heroicons-check" size="xs" color="primary" @click="exitRecipesEditMode">Done</UButton>
+            <UButton :loading="savingRecipes" icon="i-heroicons-check" size="xs" color="primary" @click="exitRecipesEditMode">Done</UButton>
           </template>
           <template v-else>
-            <UButton icon="i-heroicons-pencil-square" size="xs" color="neutral" variant="ghost" @click="recipesEditMode = true">Edit</UButton>
+            <UButton icon="i-heroicons-pencil-square" size="xs" color="primary" variant="ghost" @click="recipesEditMode = true">Edit</UButton>
           </template>
         </div>
 
@@ -1316,8 +1317,8 @@ onMounted(checkAuth)
           <UButton
             icon="i-heroicons-x-circle"
             size="xs"
-            color="error"
-            variant="soft"
+            color="primary"
+            variant="ghost"
             :disabled="selectedCount === 0 && orderItems.length === 0"
             @click="clearAllFromRecipes"
           >
@@ -1337,10 +1338,7 @@ onMounted(checkAuth)
                 <h2 class="text-sm font-bold uppercase tracking-wide text-white">{{ category.name }}</h2>
                 <span v-if="category.recipes.length > 0" class="text-xs text-white/80">({{ category.recipes.length }})</span>
               </div>
-              <div v-if="recipesEditMode" class="flex gap-1">
-                <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" @click="openEditCategory(categoryIndex)" />
-                <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="deleteCategory(categoryIndex)" />
-              </div>
+              <UButton v-if="recipesEditMode" icon="i-heroicons-pencil" size="2xs" variant="ghost" color="primary" @click="openEditCategory(categoryIndex)" />
             </div>
 
             <!-- Recipes in Category -->
@@ -1354,8 +1352,8 @@ onMounted(checkAuth)
                       <button
                         class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all"
                         :class="isWholeRecipeSelected(recipe)
-                          ? 'bg-rose-500 text-white'
-                          : 'bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-800 border border-rose-300 dark:border-rose-600'"
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-white dark:bg-gray-700 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-600'"
                         @click="toggleWholeRecipe(recipe)"
                       >
                         <UIcon :name="isWholeRecipeSelected(recipe) ? 'i-heroicons-check' : 'i-heroicons-plus'" class="w-3.5 h-3.5" />
@@ -1368,10 +1366,7 @@ onMounted(checkAuth)
                         color="primary"
                         @click="printRecipe(recipe)"
                       />
-                      <template v-if="recipesEditMode">
-                        <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" @click="openEditRecipe(categoryIndex, recipeIndex)" />
-                        <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="deleteRecipe(categoryIndex, recipeIndex)" />
-                      </template>
+                      <UButton v-if="recipesEditMode" icon="i-heroicons-pencil" size="2xs" variant="ghost" color="primary" @click="openEditRecipe(categoryIndex, recipeIndex)" />
                     </div>
                   </div>
 
@@ -1387,8 +1382,8 @@ onMounted(checkAuth)
                         <button
                           class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all"
                           :class="areAllIngredientsSelected(recipe)
-                            ? 'bg-amber-500 text-white'
-                            : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200'"
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200'"
                           @click="toggleAllIngredients(recipe)"
                         >
                           <UIcon :name="areAllIngredientsSelected(recipe) ? 'i-heroicons-x-mark' : 'i-heroicons-arrow-up-tray'" class="w-3 h-3" />
@@ -1438,8 +1433,8 @@ onMounted(checkAuth)
                         <button
                           class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all"
                           :class="areAllStepsSelected(recipe)
-                            ? 'bg-green-500 text-white'
-                            : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200'"
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200'"
                           @click.stop="toggleAllSteps(recipe)"
                         >
                           <UIcon :name="areAllStepsSelected(recipe) ? 'i-heroicons-x-mark' : 'i-heroicons-arrow-up-tray'" class="w-3 h-3" />
