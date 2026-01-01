@@ -1399,13 +1399,19 @@ onMounted(checkAuth)
                         {{ isWholeRecipeSelected(recipe) ? 'Added' : 'Add All' }}
                       </button>
                       <UButton
+                        icon="i-heroicons-pencil"
+                        size="2xs"
+                        variant="ghost"
+                        color="primary"
+                        @click="openEditRecipe(categoryIndex, recipeIndex)"
+                      />
+                      <UButton
                         icon="i-heroicons-printer"
                         size="2xs"
                         variant="ghost"
                         color="primary"
                         @click="printRecipe(recipe)"
                       />
-                      <UButton v-if="recipesEditMode" icon="i-heroicons-pencil" size="2xs" variant="ghost" color="primary" @click="openEditRecipe(categoryIndex, recipeIndex)" />
                     </div>
                   </div>
 
