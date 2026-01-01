@@ -4,7 +4,14 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ['@nuxt/eslint', '@nuxt/ui', '@nuxthub/core', '@vueuse/nuxt'],
   hub: { kv: true },
-  nitro: { preset: 'cloudflare_module' },
+  nitro: {
+    preset: 'cloudflare_module',
+    cloudflare: {
+      wrangler: {
+        ai: { binding: 'AI' }
+      }
+    }
+  },
   runtimeConfig: { pinCode: process.env.PIN_CODE || '1234' },
   css: ['~/assets/css/main.css']
 })

@@ -720,21 +720,53 @@ const printRecipe = (recipe: Recipe) => {
   sendToPrinter(pdfBase64)
 }
 
-// Check if ingredient is in Order List
+// Cache for parsed ingredient names (full ingredient -> parsed item name)
+const parsedIngredientCache = ref<Map<string, string>>(new Map())
+
+// Parse ingredient to get plain item name (uses cache)
+const getItemName = async (ingredient: string): Promise<string> => {
+  // Check cache first
+  if (parsedIngredientCache.value.has(ingredient)) {
+    return parsedIngredientCache.value.get(ingredient)!
+  }
+
+  try {
+    const { item } = await $fetch('/api/parse-ingredient', {
+      method: 'POST',
+      body: { ingredient }
+    })
+    // Cache the result
+    parsedIngredientCache.value.set(ingredient, item)
+    return item
+  }
+  catch {
+    // Fallback to original on error
+    return ingredient.trim()
+  }
+}
+
+// Check if ingredient's parsed item is in Order List
 const isIngredientInOrder = (ingredient: string) => {
+  // Check if parsed version is in cache and in order list
+  const parsed = parsedIngredientCache.value.get(ingredient)
+  if (parsed) {
+    return orderItems.value.includes(parsed)
+  }
+  // Fallback: check if original is in list (for items added before parsing)
   return orderItems.value.includes(ingredient)
 }
 
-// Toggle ingredient in Order List (OL)
+// Toggle ingredient in Order List (OL) - parses to plain item name
 const toggleIngredientInOrder = async (ingredient: string) => {
-  const index = orderItems.value.indexOf(ingredient)
+  const itemName = await getItemName(ingredient)
+  const index = orderItems.value.indexOf(itemName)
   if (index >= 0) {
     // Remove from order list
     orderItems.value.splice(index, 1)
     await saveOrderList()
   } else {
-    // Add to order list
-    await addOrderItem(ingredient)
+    // Add parsed item to order list
+    await addOrderItem(itemName)
   }
 }
 
@@ -771,28 +803,35 @@ const getRecipeSteps = (instructions: string): string[] => {
   return steps.length > 0 ? steps : [instructions]
 }
 
-// Check if all ingredients are selected
+// Check if all ingredients are selected (uses cache)
 const areAllIngredientsSelected = (recipe: Recipe) => {
   if (recipe.ingredients.length === 0) return false
   return recipe.ingredients.every(ing => isIngredientInOrder(ing))
 }
 
-// Toggle all ingredients
+// Toggle all ingredients - parses all to plain item names
 const toggleAllIngredients = async (recipe: Recipe) => {
-  if (areAllIngredientsSelected(recipe)) {
-    // Remove all ingredients from order list
-    for (const ing of recipe.ingredients) {
-      const index = orderItems.value.indexOf(ing)
+  // Parse all ingredients in parallel
+  const parsedItems = await Promise.all(
+    recipe.ingredients.map(ing => getItemName(ing))
+  )
+
+  const allSelected = parsedItems.every(item => orderItems.value.includes(item))
+
+  if (allSelected) {
+    // Remove all parsed items from order list
+    for (const item of parsedItems) {
+      const index = orderItems.value.indexOf(item)
       if (index >= 0) {
         orderItems.value.splice(index, 1)
       }
     }
     await saveOrderList()
   } else {
-    // Add all ingredients to order list
-    for (const ing of recipe.ingredients) {
-      if (!isIngredientInOrder(ing)) {
-        await addOrderItem(ing)
+    // Add all parsed items that aren't already in order list
+    for (const item of parsedItems) {
+      if (!orderItems.value.includes(item)) {
+        await addOrderItem(item)
       }
     }
   }
@@ -983,7 +1022,7 @@ onMounted(checkAuth)
               Prep
             </button>
             <button
-              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all text-gray-500 dark:text-gray-400 hover:text-rose-500 dark:hover:text-rose-400"
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all text-gray-500 dark:text-gray-400 hover:text-teal-500 dark:hover:text-teal-400"
               @click="goToRecipes"
             >
               <UIcon name="i-heroicons-book-open" class="w-4 h-4" />
@@ -1288,7 +1327,7 @@ onMounted(checkAuth)
               Prep
             </button>
             <button
-              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-400 shadow-sm"
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all bg-white dark:bg-gray-700 text-teal-600 dark:text-teal-400 shadow-sm"
             >
               <UIcon name="i-heroicons-book-open" class="w-4 h-4" />
               Recipes
@@ -1330,9 +1369,9 @@ onMounted(checkAuth)
       <!-- Recipe Categories -->
       <div class="space-y-3">
         <template v-for="(category, categoryIndex) in recipeCategories" :key="category.id">
-          <div class="bg-rose-50 dark:bg-rose-950/30 rounded-lg border border-rose-200 dark:border-rose-800 overflow-hidden">
+          <div class="bg-teal-50 dark:bg-teal-950/30 rounded-lg border border-teal-200 dark:border-teal-800 overflow-hidden">
             <!-- Category Header -->
-            <div class="flex items-center justify-between p-3 bg-rose-400 dark:bg-rose-700">
+            <div class="flex items-center justify-between p-3 bg-teal-500 dark:bg-teal-700">
               <div class="flex items-center gap-2">
                 <UIcon :name="category.icon" class="w-5 h-5 text-white" />
                 <h2 class="text-sm font-bold uppercase tracking-wide text-white">{{ category.name }}</h2>
@@ -1344,10 +1383,10 @@ onMounted(checkAuth)
             <!-- Recipes in Category -->
             <div class="p-3 space-y-2">
               <template v-for="(recipe, recipeIndex) in category.recipes" :key="recipe.id">
-                <div class="bg-white dark:bg-gray-800 rounded-lg border border-rose-200 dark:border-rose-700 shadow-sm overflow-hidden">
+                <div class="bg-white dark:bg-gray-800 rounded-lg border border-teal-200 dark:border-teal-700 shadow-sm overflow-hidden">
                   <!-- Recipe Header - Name with Add All & Print -->
-                  <div class="flex items-center justify-between p-3 bg-rose-100 dark:bg-rose-900/30 border-b border-rose-200 dark:border-rose-700">
-                    <span class="font-semibold text-rose-800 dark:text-rose-200">{{ recipe.name }}</span>
+                  <div class="flex items-center justify-between p-3 bg-teal-100 dark:bg-teal-900/30 border-b border-teal-200 dark:border-teal-700">
+                    <span class="font-semibold text-teal-800 dark:text-teal-200">{{ recipe.name }}</span>
                     <div class="flex items-center gap-1">
                       <button
                         class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all"
@@ -1483,7 +1522,7 @@ onMounted(checkAuth)
               </UButton>
 
               <!-- Empty state -->
-              <div v-if="category.recipes.length === 0 && !recipesEditMode" class="text-xs text-rose-400 dark:text-rose-500 italic py-2">
+              <div v-if="category.recipes.length === 0 && !recipesEditMode" class="text-xs text-teal-400 dark:text-teal-500 italic py-2">
                 No recipes in this category
               </div>
             </div>
@@ -1607,7 +1646,7 @@ onMounted(checkAuth)
                 v-for="icon in AVAILABLE_ICONS"
                 :key="icon"
                 class="p-2 rounded border transition-colors"
-                :class="editingCategory.icon === icon ? 'border-rose-500 bg-rose-50 dark:bg-rose-900/20' : 'border-gray-200 dark:border-gray-700'"
+                :class="editingCategory.icon === icon ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20' : 'border-gray-200 dark:border-gray-700'"
                 @click="editingCategory.icon = icon"
               >
                 <UIcon :name="icon" class="w-5 h-5" />
