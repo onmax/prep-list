@@ -28,6 +28,14 @@ const editingCategory = ref({ name: '', icon: 'i-heroicons-beaker' })
 const editingRecipe = ref<{ name: string, ingredients: string[], instructions: string }>({ name: '', ingredients: [''], instructions: '' })
 const expandedRecipeId = ref<string | null>(null)
 
+// Recipe Creation state
+const showCreateRecipeModal = ref(false)
+const createRecipeName = ref('')
+const createRecipeCategoryId = ref<string | null>(null)
+const createIngredients = ref<string[]>([''])
+const createSteps = ref<string[]>([''])
+const createError = ref('')
+
 // Edit mode state
 const editMode = ref(false)
 
@@ -653,6 +661,96 @@ const removeIngredient = (index: number) => {
 
 const toggleRecipeExpand = (recipeId: string) => {
   expandedRecipeId.value = expandedRecipeId.value === recipeId ? null : recipeId
+}
+
+// Recipe Creation
+const openCreateRecipeModal = () => {
+  createRecipeName.value = ''
+  createRecipeCategoryId.value = recipeCategories.value[0]?.id || null
+  createIngredients.value = ['']
+  createSteps.value = ['']
+  createError.value = ''
+  showCreateRecipeModal.value = true
+}
+
+const handleIngredientKeydown = (event: KeyboardEvent, index: number) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    // Only add new line if current field has content
+    if (createIngredients.value[index].trim()) {
+      createIngredients.value.splice(index + 1, 0, '')
+      nextTick(() => {
+        const inputs = document.querySelectorAll('[data-ingredient-input]')
+        const nextInput = inputs[index + 1] as HTMLInputElement
+        nextInput?.focus()
+      })
+    }
+  }
+}
+
+const handleStepKeydown = (event: KeyboardEvent, index: number) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    // Only add new line if current field has content
+    if (createSteps.value[index].trim()) {
+      createSteps.value.splice(index + 1, 0, '')
+      nextTick(() => {
+        const inputs = document.querySelectorAll('[data-step-input]')
+        const nextInput = inputs[index + 1] as HTMLInputElement
+        nextInput?.focus()
+      })
+    }
+  }
+}
+
+const removeCreateIngredient = (index: number) => {
+  if (createIngredients.value.length > 1) {
+    createIngredients.value.splice(index, 1)
+  } else {
+    createIngredients.value[0] = ''
+  }
+}
+
+const removeCreateStep = (index: number) => {
+  if (createSteps.value.length > 1) {
+    createSteps.value.splice(index, 1)
+  } else {
+    createSteps.value[0] = ''
+  }
+}
+
+const saveCreatedRecipe = () => {
+  createError.value = ''
+
+  if (!createRecipeName.value.trim()) {
+    createError.value = 'Please enter a recipe name.'
+    return
+  }
+  if (!createRecipeCategoryId.value) {
+    createError.value = 'Please select a category.'
+    return
+  }
+
+  const filteredIngredients = createIngredients.value.filter(i => i.trim())
+  const filteredSteps = createSteps.value.filter(s => s.trim())
+
+  if (filteredIngredients.length === 0) {
+    createError.value = 'Please add at least one ingredient.'
+    return
+  }
+
+  const categoryIndex = recipeCategories.value.findIndex(c => c.id === createRecipeCategoryId.value)
+  if (categoryIndex === -1) return
+
+  recipeCategories.value[categoryIndex].recipes.push({
+    id: `recipe-${Date.now()}`,
+    name: createRecipeName.value.trim(),
+    ingredients: filteredIngredients,
+    instructions: filteredSteps.join('\n')
+  })
+
+  showCreateRecipeModal.value = false
+  autoSaveRecipes()
 }
 
 // Recipe Printing
@@ -1364,6 +1462,17 @@ onMounted(checkAuth)
             Clear All
           </UButton>
         </div>
+
+        <!-- Create New Recipe Button -->
+        <UButton
+          icon="i-heroicons-plus-circle"
+          size="sm"
+          color="primary"
+          class="w-full"
+          @click="openCreateRecipeModal"
+        >
+          Create New Recipe
+        </UButton>
       </div>
 
       <!-- Recipe Categories -->
@@ -1726,6 +1835,107 @@ onMounted(checkAuth)
         <div class="flex gap-2 justify-end">
           <UButton variant="ghost" @click="showRecipeModal = false">Cancel</UButton>
           <UButton color="primary" @click="saveRecipe">Save</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Create Recipe Modal -->
+    <UModal v-model:open="showCreateRecipeModal">
+      <template #header>
+        <h3 class="font-semibold">Create New Recipe</h3>
+      </template>
+      <template #body>
+        <div class="space-y-4">
+          <!-- Recipe Name -->
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">Recipe Name</label>
+            <UInput
+              v-model="createRecipeName"
+              placeholder="Enter recipe name"
+              autofocus
+            />
+          </div>
+
+          <!-- Category Selection Grid -->
+          <div>
+            <label class="text-xs text-gray-500 mb-2 block">Category</label>
+            <div class="grid grid-cols-4 gap-2">
+              <button
+                v-for="cat in recipeCategories"
+                :key="cat.id"
+                class="p-2 rounded-lg border-2 flex flex-col items-center gap-1 transition-all"
+                :class="createRecipeCategoryId === cat.id
+                  ? 'border-teal-500 bg-teal-50 dark:bg-teal-950/50'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-teal-300 dark:hover:border-teal-600'"
+                @click="createRecipeCategoryId = cat.id"
+              >
+                <UIcon :name="cat.icon" class="w-5 h-5" :class="createRecipeCategoryId === cat.id ? 'text-teal-600' : 'text-gray-500'" />
+                <span class="text-[10px] text-center leading-tight" :class="createRecipeCategoryId === cat.id ? 'text-teal-700 dark:text-teal-300 font-medium' : 'text-gray-600 dark:text-gray-400'">{{ cat.name }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Ingredients -->
+          <div>
+            <label class="text-xs text-gray-500 mb-2 block">Ingredients (press Enter to add new)</label>
+            <div class="space-y-2">
+              <div v-for="(ingredient, index) in createIngredients" :key="index" class="flex gap-2">
+                <UInput
+                  v-model="createIngredients[index]"
+                  placeholder="Type ingredient and press Enter"
+                  class="flex-1"
+                  data-ingredient-input
+                  @keydown="handleIngredientKeydown($event, index)"
+                />
+                <UButton
+                  icon="i-heroicons-x-mark"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  @click="removeCreateIngredient(index)"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Steps -->
+          <div>
+            <label class="text-xs text-gray-500 mb-2 block">Steps (press Enter to add new)</label>
+            <div class="space-y-2">
+              <div v-for="(step, index) in createSteps" :key="index" class="flex gap-2">
+                <div class="flex items-center gap-2 flex-1">
+                  <span class="text-xs text-gray-400 w-5">{{ index + 1 }}.</span>
+                  <UInput
+                    v-model="createSteps[index]"
+                    placeholder="Type step and press Enter"
+                    class="flex-1"
+                    data-step-input
+                    @keydown="handleStepKeydown($event, index)"
+                  />
+                </div>
+                <UButton
+                  icon="i-heroicons-x-mark"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  @click="removeCreateStep(index)"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Error Message -->
+          <div v-if="createError" class="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-sm">
+            {{ createError }}
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" @click="showCreateRecipeModal = false">Cancel</UButton>
+          <UButton color="primary" @click="saveCreatedRecipe">
+            Save Recipe
+          </UButton>
         </div>
       </template>
     </UModal>
