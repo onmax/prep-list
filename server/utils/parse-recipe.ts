@@ -22,11 +22,14 @@ Do not include any text before or after the JSON.`
  */
 export async function parseRecipeWithAI(event: H3Event, content: string): Promise<ParsedRecipe | null> {
   if (!hasCloudflareAI(event)) {
+    console.log('[parseRecipeWithAI] No AI binding available')
     return null
   }
 
   try {
     const ai = getCloudflareAI(event)
+    console.log('[parseRecipeWithAI] Calling AI with content length:', content.length)
+
     const response = await ai.run('@cf/meta/llama-3-8b-instruct', {
       messages: [
         {
@@ -40,23 +43,34 @@ export async function parseRecipeWithAI(event: H3Event, content: string): Promis
       ]
     })
 
+    console.log('[parseRecipeWithAI] Raw AI response:', JSON.stringify(response))
+
     const aiResult = response.response?.trim()
     if (!aiResult) {
+      console.log('[parseRecipeWithAI] Empty AI response')
       return null
     }
+
+    console.log('[parseRecipeWithAI] AI result text:', aiResult.slice(0, 1000))
 
     // Try to extract JSON from response (AI might add extra text)
     const jsonMatch = aiResult.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
+      console.log('[parseRecipeWithAI] No JSON found in AI response')
       return null
     }
+
+    console.log('[parseRecipeWithAI] Extracted JSON:', jsonMatch[0].slice(0, 500))
 
     const parsed = JSON.parse(jsonMatch[0]) as ParsedRecipe
 
     // Validate structure
     if (!Array.isArray(parsed.ingredients) || typeof parsed.instructions !== 'string') {
+      console.log('[parseRecipeWithAI] Invalid structure - ingredients:', typeof parsed.ingredients, 'instructions:', typeof parsed.instructions)
       return null
     }
+
+    console.log('[parseRecipeWithAI] Successfully parsed - ingredients:', parsed.ingredients.length, 'instructions length:', parsed.instructions.length)
 
     return {
       ingredients: parsed.ingredients.filter(i => typeof i === 'string' && i.trim()),
@@ -64,7 +78,7 @@ export async function parseRecipeWithAI(event: H3Event, content: string): Promis
     }
   }
   catch (error) {
-    console.error('Recipe parsing failed:', error)
+    console.error('[parseRecipeWithAI] Error:', error)
     return null
   }
 }
