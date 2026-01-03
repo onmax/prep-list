@@ -36,6 +36,13 @@ const createIngredients = ref<string[]>([''])
 const createSteps = ref<string[]>([''])
 const createError = ref('')
 
+// Recipe Import state
+const importLoading = ref(false)
+const importUrl = ref('')
+const isRecording = ref(false)
+const mediaRecorder = ref<MediaRecorder | null>(null)
+const audioChunks = ref<Blob[]>([])
+
 // Edit mode state
 const editMode = ref(false)
 
@@ -670,7 +677,164 @@ const openCreateRecipeModal = () => {
   createIngredients.value = ['']
   createSteps.value = ['']
   createError.value = ''
+  importUrl.value = ''
+  importLoading.value = false
+  isRecording.value = false
   showCreateRecipeModal.value = true
+}
+
+// Populate form from parsed recipe data
+const populateRecipeForm = (data: { name?: string, ingredients: string[], instructions: string }) => {
+  if (data.name) {
+    createRecipeName.value = data.name
+  }
+  if (data.ingredients.length > 0) {
+    createIngredients.value = [...data.ingredients, '']
+  }
+  if (data.instructions) {
+    const steps = data.instructions.split('\n').filter(s => s.trim())
+    if (steps.length > 0) {
+      createSteps.value = [...steps, '']
+    }
+  }
+}
+
+// Handle file upload for recipe import
+const handleFileUpload = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  importLoading.value = true
+  createError.value = ''
+
+  try {
+    const fileName = file.name.toLowerCase()
+    const isAudio = fileName.endsWith('.mp3') || fileName.endsWith('.wav') ||
+                    fileName.endsWith('.webm') || fileName.endsWith('.m4a') ||
+                    fileName.endsWith('.ogg') || file.type.startsWith('audio/')
+
+    if (isAudio) {
+      // Send audio to transcription endpoint
+      const formData = new FormData()
+      formData.append('audio', file)
+
+      const result = await $fetch('/api/transcribe-audio', {
+        method: 'POST',
+        body: formData
+      }) as { transcription: string, ingredients: string[], instructions: string }
+
+      populateRecipeForm({
+        ingredients: result.ingredients,
+        instructions: result.instructions
+      })
+    } else {
+      // Extract text from PDF/DOCX
+      const { extractTextFromFile } = await import('~/utils/file-parsers')
+      const text = await extractTextFromFile(file)
+
+      // Parse with AI
+      const result = await $fetch('/api/parse-recipe', {
+        method: 'POST',
+        body: { content: text }
+      }) as { ingredients: string[], instructions: string }
+
+      populateRecipeForm(result)
+    }
+  } catch (error) {
+    console.error('File import failed:', error)
+    createError.value = error instanceof Error ? error.message : 'Failed to import file. Please try again.'
+  } finally {
+    importLoading.value = false
+    input.value = '' // Reset file input
+  }
+}
+
+// Handle audio recording
+const startRecording = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+
+    audioChunks.value = []
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunks.value.push(event.data)
+      }
+    }
+
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(track => track.stop())
+
+      if (audioChunks.value.length === 0) return
+
+      importLoading.value = true
+      createError.value = ''
+
+      try {
+        const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' })
+        const formData = new FormData()
+        formData.append('audio', audioBlob, 'recording.webm')
+
+        const result = await $fetch('/api/transcribe-audio', {
+          method: 'POST',
+          body: formData
+        }) as { transcription: string, ingredients: string[], instructions: string }
+
+        populateRecipeForm({
+          ingredients: result.ingredients,
+          instructions: result.instructions
+        })
+      } catch (error) {
+        console.error('Audio transcription failed:', error)
+        createError.value = 'Failed to transcribe audio. Please try again.'
+      } finally {
+        importLoading.value = false
+      }
+    }
+
+    mediaRecorder.value = recorder
+    recorder.start()
+    isRecording.value = true
+  } catch (error) {
+    console.error('Failed to start recording:', error)
+    createError.value = 'Microphone access denied. Please allow microphone access to record.'
+  }
+}
+
+const stopRecording = () => {
+  if (mediaRecorder.value && isRecording.value) {
+    mediaRecorder.value.stop()
+    isRecording.value = false
+    mediaRecorder.value = null
+  }
+}
+
+// Handle URL import
+const importFromUrl = async () => {
+  if (!importUrl.value.trim()) {
+    createError.value = 'Please enter a URL'
+    return
+  }
+
+  importLoading.value = true
+  createError.value = ''
+
+  try {
+    const result = await $fetch('/api/parse-recipe-url', {
+      method: 'POST',
+      body: { url: importUrl.value.trim() }
+    }) as { name: string, ingredients: string[], instructions: string }
+
+    populateRecipeForm(result)
+    importUrl.value = '' // Clear URL after successful import
+  } catch (error) {
+    console.error('URL import failed:', error)
+    createError.value = error instanceof Error ? error.message : 'Failed to import from URL. Please try again.'
+  } finally {
+    importLoading.value = false
+  }
 }
 
 const handleIngredientKeydown = (event: KeyboardEvent, index: number) => {
@@ -1846,13 +2010,96 @@ onMounted(checkAuth)
       </template>
       <template #body>
         <div class="space-y-4">
+          <!-- Import Section -->
+          <div class="space-y-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+            <!-- File Upload -->
+            <div>
+              <label class="text-xs text-gray-500 mb-2 block">Import from file</label>
+              <label
+                class="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed rounded-lg cursor-pointer transition-colors"
+                :class="importLoading
+                  ? 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800'
+                  : 'border-gray-300 dark:border-gray-600 hover:border-teal-400 dark:hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-950/30'"
+              >
+                <div v-if="importLoading" class="flex items-center gap-2 text-gray-500">
+                  <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin" />
+                  <span class="text-sm">Processing...</span>
+                </div>
+                <div v-else class="flex flex-col items-center">
+                  <UIcon name="i-heroicons-document-arrow-up" class="w-6 h-6 text-gray-400 mb-1" />
+                  <span class="text-xs text-gray-500">Drop file or click to upload</span>
+                  <span class="text-[10px] text-gray-400">PDF, DOCX, or Audio (MP3, WAV, M4A)</span>
+                </div>
+                <input
+                  type="file"
+                  class="hidden"
+                  accept=".pdf,.docx,.mp3,.wav,.webm,.m4a,.ogg,audio/*"
+                  :disabled="importLoading"
+                  @change="handleFileUpload"
+                />
+              </label>
+            </div>
+
+            <!-- Audio Recording -->
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-500">Or record audio:</span>
+              <UButton
+                v-if="!isRecording"
+                icon="i-heroicons-microphone"
+                size="xs"
+                variant="soft"
+                :disabled="importLoading"
+                @click="startRecording"
+              >
+                Record
+              </UButton>
+              <UButton
+                v-else
+                icon="i-heroicons-stop"
+                size="xs"
+                color="error"
+                class="animate-pulse"
+                @click="stopRecording"
+              >
+                Stop
+              </UButton>
+            </div>
+
+            <!-- URL Import -->
+            <div>
+              <label class="text-xs text-gray-500 mb-1 block">Or paste recipe URL</label>
+              <div class="flex gap-2">
+                <UInput
+                  v-model="importUrl"
+                  placeholder="https://example.com/recipe"
+                  class="flex-1"
+                  :disabled="importLoading"
+                />
+                <UButton
+                  size="sm"
+                  :disabled="importLoading || !importUrl.trim()"
+                  :loading="importLoading"
+                  @click="importFromUrl"
+                >
+                  Import
+                </UButton>
+              </div>
+            </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="flex items-center gap-2 text-xs text-gray-400">
+            <div class="flex-1 border-t border-gray-200 dark:border-gray-700" />
+            <span>or enter manually</span>
+            <div class="flex-1 border-t border-gray-200 dark:border-gray-700" />
+          </div>
+
           <!-- Recipe Name -->
           <div>
             <label class="text-xs text-gray-500 mb-1 block">Recipe Name</label>
             <UInput
               v-model="createRecipeName"
               placeholder="Enter recipe name"
-              autofocus
             />
           </div>
 

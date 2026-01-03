@@ -5,11 +5,12 @@
 export async function extractTextFromPDF(file: File): Promise<string> {
   const pdfjsLib = await import('pdfjs-dist')
 
-  // Disable worker to avoid CDN/loading issues (fine for small recipe PDFs)
-  pdfjsLib.GlobalWorkerOptions.workerSrc = ''
+  // Use unpkg CDN for PDF.js worker (matches installed version)
+  const version = pdfjsLib.version
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${version}/build/pdf.worker.min.mjs`
 
   const arrayBuffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true }).promise
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
   const textParts: string[] = []
 
   for (let i = 1; i <= pdf.numPages; i++) {
