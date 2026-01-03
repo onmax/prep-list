@@ -1,4 +1,5 @@
 import { parseRecipeWithAI } from '../utils/parse-recipe'
+import { hasCloudflareAI } from '../utils/cloudflare-ai'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -15,6 +16,14 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       message: 'Content too long (max 50000 characters)'
+    })
+  }
+
+  // Check if AI is available (not available in local dev)
+  if (!hasCloudflareAI(event)) {
+    throw createError({
+      statusCode: 503,
+      message: 'AI parsing not available locally. Deploy to Cloudflare to use this feature, or enter the recipe manually.'
     })
   }
 

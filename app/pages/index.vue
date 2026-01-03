@@ -741,9 +741,11 @@ const handleFileUpload = async (event: Event) => {
 
       populateRecipeForm(result)
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('File import failed:', error)
-    createError.value = error instanceof Error ? error.message : 'Failed to import file. Please try again.'
+    // Extract error message from fetch error or Error object
+    const fetchError = error as { data?: { message?: string } }
+    createError.value = fetchError?.data?.message || (error instanceof Error ? error.message : 'Failed to import file. Please try again.')
   } finally {
     importLoading.value = false
     input.value = '' // Reset file input
@@ -829,9 +831,10 @@ const importFromUrl = async () => {
 
     populateRecipeForm(result)
     importUrl.value = '' // Clear URL after successful import
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('URL import failed:', error)
-    createError.value = error instanceof Error ? error.message : 'Failed to import from URL. Please try again.'
+    const fetchError = error as { data?: { message?: string } }
+    createError.value = fetchError?.data?.message || (error instanceof Error ? error.message : 'Failed to import from URL. Please try again.')
   } finally {
     importLoading.value = false
   }
