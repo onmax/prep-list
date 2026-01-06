@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { jsPDF } from 'jspdf'
+import Sortable from 'sortablejs'
 import type { PrepDrawer, PrepList } from '~/utils/drawers'
 import { DRAWERS, DRAWERS_VERSION, AVAILABLE_ICONS } from '~/utils/drawers'
 import type { Recipe, RecipeCategory, RecipesBook } from '~/utils/recipes'
@@ -39,9 +40,74 @@ const createError = ref('')
 // Recipe Import state
 const importLoading = ref(false)
 const importUrl = ref('')
-const isRecording = ref(false)
-const mediaRecorder = ref<MediaRecorder | null>(null)
-const audioChunks = ref<Blob[]>([])
+
+// Drag-and-drop state for recipes
+const categoryRefs = ref<Map<string, HTMLElement>>(new Map())
+const sortableInstances = ref<Map<string, Sortable>>(new Map())
+
+const setCategoryRef = (categoryId: string, el: unknown) => {
+  const element = el as HTMLElement | null
+  if (element) {
+    categoryRefs.value.set(categoryId, element)
+  } else {
+    categoryRefs.value.delete(categoryId)
+  }
+}
+
+const initSortables = () => {
+  // Clean up existing instances
+  sortableInstances.value.forEach((instance) => instance.destroy())
+  sortableInstances.value.clear()
+
+  // Initialize new sortables for each category
+  categoryRefs.value.forEach((el, categoryId) => {
+    const sortable = Sortable.create(el, {
+      group: 'recipes',
+      animation: 150,
+      handle: '.drag-handle',
+      delay: 100,
+      delayOnTouchOnly: true,
+      ghostClass: 'opacity-50',
+      chosenClass: 'ring-2 ring-gray-400 rounded',
+      onEnd: (evt) => handleRecipeMove(evt)
+    })
+    sortableInstances.value.set(categoryId, sortable)
+  })
+}
+
+const handleRecipeMove = (evt: Sortable.SortableEvent) => {
+  const fromCategoryId = evt.from.dataset.categoryId
+  const toCategoryId = evt.to.dataset.categoryId
+
+  if (!fromCategoryId || !toCategoryId || evt.oldIndex === undefined || evt.newIndex === undefined) return
+
+  const fromCategory = recipeCategories.value.find(c => c.id === fromCategoryId)
+  const toCategory = recipeCategories.value.find(c => c.id === toCategoryId)
+
+  if (!fromCategory || !toCategory) return
+
+  // Remove from source
+  const [recipe] = fromCategory.recipes.splice(evt.oldIndex, 1)
+
+  // Add to destination
+  toCategory.recipes.splice(evt.newIndex, 0, recipe)
+
+  autoSaveRecipes()
+}
+
+// Initialize sortables when entering edit mode
+watch(recipesEditMode, (isEditMode) => {
+  if (isEditMode) {
+    nextTick(() => {
+      // Wait for DOM to update with new refs
+      setTimeout(() => initSortables(), 100)
+    })
+  } else {
+    // Clean up when exiting edit mode
+    sortableInstances.value.forEach((instance) => instance.destroy())
+    sortableInstances.value.clear()
+  }
+})
 
 // Edit mode state
 const editMode = ref(false)
@@ -670,6 +736,57 @@ const toggleRecipeExpand = (recipeId: string) => {
   expandedRecipeId.value = expandedRecipeId.value === recipeId ? null : recipeId
 }
 
+// Recipe Comments
+const updatePrepComment = (categoryIndex: number, recipeIndex: number, comment: string) => {
+  const recipe = recipeCategories.value[categoryIndex].recipes[recipeIndex]
+  recipe.prepComment = comment || undefined
+  autoSaveRecipes()
+}
+
+// Step Comment Modal state
+const showStepCommentModal = ref(false)
+const editingStepComment = ref({
+  categoryIndex: 0,
+  recipeIndex: 0,
+  stepIndex: 0,
+  stepText: '',
+  comment: ''
+})
+
+const openStepCommentModal = (categoryIndex: number, recipeIndex: number, stepIndex: number, stepText: string) => {
+  const recipe = recipeCategories.value[categoryIndex].recipes[recipeIndex]
+  editingStepComment.value = {
+    categoryIndex,
+    recipeIndex,
+    stepIndex,
+    stepText,
+    comment: recipe.stepComments?.[stepIndex] || ''
+  }
+  showStepCommentModal.value = true
+}
+
+const saveStepComment = () => {
+  const { categoryIndex, recipeIndex, stepIndex, comment } = editingStepComment.value
+  const recipe = recipeCategories.value[categoryIndex].recipes[recipeIndex]
+
+  if (!recipe.stepComments) {
+    recipe.stepComments = {}
+  }
+
+  if (comment.trim()) {
+    recipe.stepComments[stepIndex] = comment.trim()
+  } else {
+    delete recipe.stepComments[stepIndex]
+    // Clean up empty object
+    if (Object.keys(recipe.stepComments).length === 0) {
+      recipe.stepComments = undefined
+    }
+  }
+
+  showStepCommentModal.value = false
+  autoSaveRecipes()
+}
+
 // Recipe Creation
 const openCreateRecipeModal = () => {
   createRecipeName.value = ''
@@ -679,7 +796,6 @@ const openCreateRecipeModal = () => {
   createError.value = ''
   importUrl.value = ''
   importLoading.value = false
-  isRecording.value = false
   showCreateRecipeModal.value = true
 }
 
@@ -699,119 +815,6 @@ const populateRecipeForm = (data: { name?: string, ingredients: string[], instru
   }
 }
 
-// Handle file upload for recipe import
-const handleFileUpload = async (event: Event) => {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  importLoading.value = true
-  createError.value = ''
-
-  try {
-    const fileName = file.name.toLowerCase()
-    const isAudio = fileName.endsWith('.mp3') || fileName.endsWith('.wav') ||
-                    fileName.endsWith('.webm') || fileName.endsWith('.m4a') ||
-                    fileName.endsWith('.ogg') || file.type.startsWith('audio/')
-
-    if (isAudio) {
-      // Send audio to transcription endpoint
-      const formData = new FormData()
-      formData.append('audio', file)
-
-      const result = await $fetch('/api/transcribe-audio', {
-        method: 'POST',
-        body: formData
-      }) as { transcription: string, ingredients: string[], instructions: string }
-
-      populateRecipeForm({
-        ingredients: result.ingredients,
-        instructions: result.instructions
-      })
-    } else {
-      // Extract text from PDF/DOCX
-      const { extractTextFromFile } = await import('~/utils/file-parsers')
-      const text = await extractTextFromFile(file)
-
-      // Parse with AI
-      const result = await $fetch('/api/parse-recipe', {
-        method: 'POST',
-        body: { content: text }
-      }) as { ingredients: string[], instructions: string }
-
-      populateRecipeForm(result)
-    }
-  } catch (error: unknown) {
-    console.error('File import failed:', error)
-    // Extract error message from fetch error or Error object
-    const fetchError = error as { data?: { message?: string } }
-    createError.value = fetchError?.data?.message || (error instanceof Error ? error.message : 'Failed to import file. Please try again.')
-  } finally {
-    importLoading.value = false
-    input.value = '' // Reset file input
-  }
-}
-
-// Handle audio recording
-const startRecording = async () => {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-
-    audioChunks.value = []
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        audioChunks.value.push(event.data)
-      }
-    }
-
-    recorder.onstop = async () => {
-      stream.getTracks().forEach(track => track.stop())
-
-      if (audioChunks.value.length === 0) return
-
-      importLoading.value = true
-      createError.value = ''
-
-      try {
-        const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' })
-        const formData = new FormData()
-        formData.append('audio', audioBlob, 'recording.webm')
-
-        const result = await $fetch('/api/transcribe-audio', {
-          method: 'POST',
-          body: formData
-        }) as { transcription: string, ingredients: string[], instructions: string }
-
-        populateRecipeForm({
-          ingredients: result.ingredients,
-          instructions: result.instructions
-        })
-      } catch (error) {
-        console.error('Audio transcription failed:', error)
-        createError.value = 'Failed to transcribe audio. Please try again.'
-      } finally {
-        importLoading.value = false
-      }
-    }
-
-    mediaRecorder.value = recorder
-    recorder.start()
-    isRecording.value = true
-  } catch (error) {
-    console.error('Failed to start recording:', error)
-    createError.value = 'Microphone access denied. Please allow microphone access to record.'
-  }
-}
-
-const stopRecording = () => {
-  if (mediaRecorder.value && isRecording.value) {
-    mediaRecorder.value.stop()
-    isRecording.value = false
-    mediaRecorder.value = null
-  }
-}
 
 // Handle URL import
 const importFromUrl = async () => {
@@ -924,9 +927,18 @@ const saveCreatedRecipe = () => {
 const generateRecipePdf = (recipe: Recipe): string => {
   // Calculate height based on content
   const ingredientHeight = recipe.ingredients.length * 5
+  const steps = getRecipeSteps(recipe.instructions)
+  const prepCommentHeight = recipe.prepComment ? 15 : 0
+  // Calculate step comments height
+  let stepCommentsHeight = 0
+  if (recipe.stepComments) {
+    Object.keys(recipe.stepComments).forEach(() => {
+      stepCommentsHeight += 8 // Extra height per step comment
+    })
+  }
   const instructionLines = Math.ceil(recipe.instructions.length / 35)
   const instructionHeight = instructionLines * 5
-  const totalHeight = 45 + ingredientHeight + instructionHeight + 20
+  const totalHeight = 45 + prepCommentHeight + ingredientHeight + instructionHeight + stepCommentsHeight + 20
 
   const doc = new jsPDF({
     unit: 'mm',
@@ -947,6 +959,15 @@ const generateRecipePdf = (recipe: Recipe): string => {
   doc.setLineWidth(0.3)
   doc.line(margin, y, pageWidth - margin, y)
   y += 5
+
+  // Prep Comment (if exists) - shown at top before ingredients
+  if (recipe.prepComment) {
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'italic')
+    const commentLines = doc.splitTextToSize(`* ${recipe.prepComment}`, pageWidth - (margin * 2))
+    doc.text(commentLines, margin, y)
+    y += commentLines.length * 4 + 3
+  }
 
   // Ingredients header
   doc.setFontSize(10)
@@ -971,11 +992,31 @@ const generateRecipePdf = (recipe: Recipe): string => {
   doc.text('INSTRUCTIONS', margin, y)
   y += 5
 
-  // Instructions text
+  // Instructions with step comments
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  const lines = doc.splitTextToSize(recipe.instructions, pageWidth - (margin * 2))
-  doc.text(lines, margin, y)
+  steps.forEach((step, index) => {
+    const hasComment = recipe.stepComments?.[index]
+    // Add small dot indicator if step has comment
+    const prefix = hasComment ? '• ' : `${index + 1}. `
+    const stepText = step.length > 60 ? step.substring(0, 58) + '...' : step
+    const stepLines = doc.splitTextToSize(`${prefix}${stepText}`, pageWidth - (margin * 2))
+    doc.text(stepLines, margin, y)
+    y += stepLines.length * 4
+
+    // Add step comment in smaller italic font
+    if (hasComment) {
+      doc.setFontSize(7)
+      doc.setFont('helvetica', 'italic')
+      const commentText = recipe.stepComments![index]
+      const truncatedComment = commentText.length > 50 ? commentText.substring(0, 48) + '...' : commentText
+      doc.text(`  → ${truncatedComment}`, margin + 2, y)
+      y += 4
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+    }
+    y += 1
+  })
 
   return doc.output('datauristring').split(',')[1]
 }
@@ -1607,8 +1648,15 @@ onMounted(checkAuth)
           </template>
         </div>
 
-        <!-- Status bar -->
-        <div class="flex items-center gap-2 text-xs">
+        <!-- Edit Mode Banner -->
+        <div v-if="recipesEditMode" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600">
+          <UIcon name="i-heroicons-pencil-square" class="w-5 h-5 text-gray-600 dark:text-gray-300" />
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-200">Edit Mode</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">- Manage your recipes and categories</span>
+        </div>
+
+        <!-- Status bar (hidden in edit mode) -->
+        <div v-if="!recipesEditMode" class="flex items-center gap-2 text-xs">
           <div class="flex items-center gap-1 px-2 py-1 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
             <UIcon name="i-heroicons-clipboard-document-list" class="w-3.5 h-3.5" />
             <span class="font-medium">TD: {{ selectedCount }}</span>
@@ -1630,8 +1678,9 @@ onMounted(checkAuth)
           </UButton>
         </div>
 
-        <!-- Create New Recipe Button -->
+        <!-- Create New Recipe Button (hidden in edit mode) -->
         <UButton
+          v-if="!recipesEditMode"
           icon="i-heroicons-plus-circle"
           size="sm"
           color="primary"
@@ -1642,8 +1691,106 @@ onMounted(checkAuth)
         </UButton>
       </div>
 
-      <!-- Recipe Categories -->
-      <div class="space-y-3">
+      <!-- EDIT MODE: Simple list layout -->
+      <div v-if="recipesEditMode" class="space-y-4">
+        <template v-for="(category, categoryIndex) in recipeCategories" :key="category.id">
+          <div class="bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+            <!-- Category Header - Edit Mode -->
+            <div class="flex items-center justify-between p-3 bg-gray-200 dark:bg-gray-700 border-b border-gray-300 dark:border-gray-600">
+              <div class="flex items-center gap-2">
+                <UIcon :name="category.icon" class="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                <h2 class="text-sm font-bold uppercase tracking-wide text-gray-800 dark:text-gray-200">{{ category.name }}</h2>
+                <span v-if="category.recipes.length > 0" class="text-xs text-gray-500 dark:text-gray-400">({{ category.recipes.length }})</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <UButton
+                  icon="i-heroicons-pencil"
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  @click="openEditCategory(categoryIndex)"
+                />
+                <UButton
+                  icon="i-heroicons-trash"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  @click="deleteCategory(categoryIndex)"
+                />
+              </div>
+            </div>
+
+            <!-- Recipe List - Edit Mode -->
+            <div
+              :ref="el => setCategoryRef(category.id, el)"
+              :data-category-id="category.id"
+              class="divide-y divide-gray-200 dark:divide-gray-600 recipe-sortable-list"
+            >
+              <div
+                v-for="(recipe, recipeIndex) in category.recipes"
+                :key="recipe.id"
+                :data-recipe-id="recipe.id"
+                class="flex items-center gap-2 px-4 py-3 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                <!-- Delete Button (far left) -->
+                <UButton
+                  icon="i-heroicons-trash"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  @click.stop="deleteRecipe(categoryIndex, recipeIndex)"
+                />
+
+                <!-- Recipe Name (clickable to edit) -->
+                <button
+                  class="flex-1 text-left font-medium text-gray-900 dark:text-gray-100 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                  @click="openEditRecipe(categoryIndex, recipeIndex)"
+                >
+                  {{ recipe.name }}
+                </button>
+
+                <!-- Drag Handle (far right) -->
+                <div class="drag-handle cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1">
+                  <UIcon name="i-heroicons-bars-3" class="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Empty state -->
+            <div v-if="category.recipes.length === 0" class="px-4 py-3 text-sm text-gray-400 dark:text-gray-500 italic bg-white dark:bg-gray-900">
+              No recipes in this category
+            </div>
+
+            <!-- Add Recipe Button -->
+            <div class="px-4 py-2 bg-white dark:bg-gray-900">
+              <UButton
+                icon="i-heroicons-plus"
+                size="xs"
+                variant="outline"
+                color="neutral"
+                class="w-full"
+                @click="openAddRecipe(categoryIndex)"
+              >
+                Add Recipe
+              </UButton>
+            </div>
+          </div>
+        </template>
+
+        <!-- Add Category Button -->
+        <UButton
+          icon="i-heroicons-plus"
+          variant="outline"
+          color="neutral"
+          class="w-full"
+          @click="openAddCategory"
+        >
+          Add Category
+        </UButton>
+      </div>
+
+      <!-- NORMAL MODE: Full recipe cards -->
+      <div v-else class="space-y-3">
         <template v-for="(category, categoryIndex) in recipeCategories" :key="category.id">
           <div class="bg-teal-50 dark:bg-teal-950/30 rounded-lg border border-teal-200 dark:border-teal-800 overflow-hidden">
             <!-- Category Header -->
@@ -1653,7 +1800,6 @@ onMounted(checkAuth)
                 <h2 class="text-sm font-bold uppercase tracking-wide text-white">{{ category.name }}</h2>
                 <span v-if="category.recipes.length > 0" class="text-xs text-white/80">({{ category.recipes.length }})</span>
               </div>
-              <UButton v-if="recipesEditMode" icon="i-heroicons-pencil" size="2xs" variant="ghost" color="primary" @click="openEditCategory(categoryIndex)" />
             </div>
 
             <!-- Recipes in Category -->
@@ -1674,13 +1820,6 @@ onMounted(checkAuth)
                         <UIcon :name="isWholeRecipeSelected(recipe) ? 'i-heroicons-check' : 'i-heroicons-plus'" class="w-3.5 h-3.5" />
                         {{ isWholeRecipeSelected(recipe) ? 'Added' : 'Add All' }}
                       </button>
-                      <UButton
-                        icon="i-heroicons-pencil"
-                        size="2xs"
-                        variant="ghost"
-                        color="primary"
-                        @click="openEditRecipe(categoryIndex, recipeIndex)"
-                      />
                       <UButton
                         icon="i-heroicons-printer"
                         size="2xs"
@@ -1736,6 +1875,22 @@ onMounted(checkAuth)
                       </ul>
                     </div>
 
+                    <!-- Prep Comment Section -->
+                    <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+                      <div class="flex items-center gap-2 mb-2">
+                        <UIcon name="i-heroicons-chat-bubble-bottom-center-text" class="w-4 h-4 text-purple-500" />
+                        <h4 class="text-xs font-semibold text-gray-500 uppercase">Prep Notes</h4>
+                        <span v-if="recipe.prepComment" class="w-2 h-2 rounded-full bg-purple-500"></span>
+                      </div>
+                      <UTextarea
+                        :model-value="recipe.prepComment || ''"
+                        placeholder="Any comment for prep..."
+                        :rows="2"
+                        class="text-sm"
+                        @update:model-value="updatePrepComment(categoryIndex, recipeIndex, $event)"
+                      />
+                    </div>
+
                     <!-- Steps Section - Collapsible -->
                     <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
                       <div
@@ -1767,23 +1922,44 @@ onMounted(checkAuth)
                         <li
                           v-for="(step, i) in getRecipeSteps(recipe.instructions)"
                           :key="i"
-                          class="flex items-start gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all"
-                          :class="isStepInPrep(step)
-                            ? 'bg-green-100 dark:bg-green-900/40 border border-green-400 dark:border-green-600'
-                            : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
-                          @click="toggleStepInPrep(step)"
+                          class="group"
                         >
-                          <UIcon
-                            :name="isStepInPrep(step) ? 'i-heroicons-check-circle-solid' : 'i-heroicons-plus-circle'"
-                            class="w-5 h-5 flex-shrink-0 mt-0.5"
-                            :class="isStepInPrep(step) ? 'text-green-500' : 'text-gray-400'"
-                          />
-                          <span
-                            class="text-sm"
-                            :class="isStepInPrep(step) ? 'text-green-700 dark:text-green-300 font-medium' : ''"
+                          <div
+                            class="flex items-start gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all"
+                            :class="isStepInPrep(step)
+                              ? 'bg-green-100 dark:bg-green-900/40 border border-green-400 dark:border-green-600'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
+                            @click="toggleStepInPrep(step)"
                           >
-                            {{ step }}
-                          </span>
+                            <UIcon
+                              :name="isStepInPrep(step) ? 'i-heroicons-check-circle-solid' : 'i-heroicons-plus-circle'"
+                              class="w-5 h-5 flex-shrink-0 mt-0.5"
+                              :class="isStepInPrep(step) ? 'text-green-500' : 'text-gray-400'"
+                            />
+                            <span
+                              class="flex-1 text-sm"
+                              :class="isStepInPrep(step) ? 'text-green-700 dark:text-green-300 font-medium' : ''"
+                            >
+                              {{ step }}
+                            </span>
+                            <!-- Step comment indicator -->
+                            <span v-if="recipe.stepComments?.[i]" class="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0 mt-1.5"></span>
+                            <!-- Comment button -->
+                            <button
+                              class="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              :class="recipe.stepComments?.[i] ? 'text-purple-500' : 'text-gray-400 hover:text-purple-500'"
+                              @click.stop="openStepCommentModal(categoryIndex, recipeIndex, i, step)"
+                            >
+                              <UIcon name="i-heroicons-chat-bubble-left" class="w-4 h-4" />
+                            </button>
+                          </div>
+                          <!-- Step comment display -->
+                          <div
+                            v-if="recipe.stepComments?.[i]"
+                            class="ml-9 mr-2 mt-1 mb-2 px-2 py-1.5 bg-purple-50 dark:bg-purple-900/20 rounded text-xs text-purple-700 dark:text-purple-300 border-l-2 border-purple-400"
+                          >
+                            {{ recipe.stepComments[i] }}
+                          </div>
                         </li>
                       </ul>
                     </div>
@@ -1791,36 +1967,13 @@ onMounted(checkAuth)
                 </div>
               </template>
 
-              <!-- Add Recipe Button -->
-              <UButton
-                v-if="recipesEditMode"
-                icon="i-heroicons-plus"
-                size="xs"
-                variant="outline"
-                class="w-full"
-                @click="openAddRecipe(categoryIndex)"
-              >
-                Add Recipe
-              </UButton>
-
               <!-- Empty state -->
-              <div v-if="category.recipes.length === 0 && !recipesEditMode" class="text-xs text-teal-400 dark:text-teal-500 italic py-2">
+              <div v-if="category.recipes.length === 0" class="text-xs text-teal-400 dark:text-teal-500 italic py-2">
                 No recipes in this category
               </div>
             </div>
           </div>
         </template>
-
-        <!-- Add Category Button -->
-        <UButton
-          v-if="recipesEditMode"
-          icon="i-heroicons-plus"
-          variant="outline"
-          class="w-full"
-          @click="openAddCategory"
-        >
-          Add Category
-        </UButton>
       </div>
     </UMain>
 
@@ -1905,6 +2058,32 @@ onMounted(checkAuth)
       <template #footer>
         <div class="flex justify-end">
           <UButton variant="ghost" @click="showPreviousItemsModal = false">Close</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Step Comment Modal -->
+    <UModal v-model:open="showStepCommentModal">
+      <template #header>
+        <h3 class="font-semibold">Step Comment</h3>
+      </template>
+      <template #body>
+        <div class="space-y-3">
+          <div class="p-2 bg-gray-100 dark:bg-gray-800 rounded text-sm text-gray-700 dark:text-gray-300">
+            {{ editingStepComment.stepText }}
+          </div>
+          <UTextarea
+            v-model="editingStepComment.comment"
+            placeholder="Add a comment for this step..."
+            :rows="3"
+            autofocus
+          />
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <UButton variant="ghost" @click="showStepCommentModal = false">Cancel</UButton>
+          <UButton color="primary" @click="saveStepComment">Save</UButton>
         </div>
       </template>
     </UModal>
@@ -2013,64 +2192,10 @@ onMounted(checkAuth)
       </template>
       <template #body>
         <div class="space-y-4">
-          <!-- Import Section -->
+          <!-- URL Import Section -->
           <div class="space-y-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-            <!-- File Upload -->
             <div>
-              <label class="text-xs text-gray-500 mb-2 block">Import from file</label>
-              <label
-                class="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed rounded-lg cursor-pointer transition-colors"
-                :class="importLoading
-                  ? 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800'
-                  : 'border-gray-300 dark:border-gray-600 hover:border-teal-400 dark:hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-950/30'"
-              >
-                <div v-if="importLoading" class="flex items-center gap-2 text-gray-500">
-                  <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin" />
-                  <span class="text-sm">Processing...</span>
-                </div>
-                <div v-else class="flex flex-col items-center">
-                  <UIcon name="i-heroicons-document-arrow-up" class="w-6 h-6 text-gray-400 mb-1" />
-                  <span class="text-xs text-gray-500">Drop file or click to upload</span>
-                  <span class="text-[10px] text-gray-400">PDF, DOCX, or Audio (MP3, WAV, M4A)</span>
-                </div>
-                <input
-                  type="file"
-                  class="hidden"
-                  accept=".pdf,.docx,.mp3,.wav,.webm,.m4a,.ogg,audio/*"
-                  :disabled="importLoading"
-                  @change="handleFileUpload"
-                />
-              </label>
-            </div>
-
-            <!-- Audio Recording -->
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-gray-500">Or record audio:</span>
-              <UButton
-                v-if="!isRecording"
-                icon="i-heroicons-microphone"
-                size="xs"
-                variant="soft"
-                :disabled="importLoading"
-                @click="startRecording"
-              >
-                Record
-              </UButton>
-              <UButton
-                v-else
-                icon="i-heroicons-stop"
-                size="xs"
-                color="error"
-                class="animate-pulse"
-                @click="stopRecording"
-              >
-                Stop
-              </UButton>
-            </div>
-
-            <!-- URL Import -->
-            <div>
-              <label class="text-xs text-gray-500 mb-1 block">Or paste recipe URL</label>
+              <label class="text-xs text-gray-500 mb-1 block">Import from URL</label>
               <div class="flex gap-2">
                 <UInput
                   v-model="importUrl"

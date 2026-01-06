@@ -1,11 +1,13 @@
 // Bump this when DEFAULT_CATEGORIES changes to reset stored data
-export const RECIPES_VERSION = 3
+export const RECIPES_VERSION = 4
 
 export interface Recipe {
   id: string
   name: string
   ingredients: string[]
   instructions: string
+  prepComment?: string // Comment shown at top of printed recipe
+  stepComments?: Record<number, string> // Comments for individual steps (keyed by step index)
 }
 
 export interface RecipeCategory {
