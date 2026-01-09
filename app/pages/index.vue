@@ -27,6 +27,7 @@ const editingCategoryIndex = ref<number | null>(null)
 const editingRecipeIndex = ref<number | null>(null)
 const editingCategory = ref({ name: '', icon: 'i-heroicons-beaker' })
 const editingRecipe = ref<{ name: string, ingredients: string[], instructions: string }>({ name: '', ingredients: [''], instructions: '' })
+const editingSteps = ref<string[]>([''])
 const expandedRecipeId = ref<string | null>(null)
 
 // Recipe Creation state
@@ -42,25 +43,18 @@ const importLoading = ref(false)
 const importUrl = ref('')
 
 // Drag-and-drop state for recipes
-const categoryRefs = ref<Map<string, HTMLElement>>(new Map())
 const sortableInstances = ref<Map<string, Sortable>>(new Map())
-
-const setCategoryRef = (categoryId: string, el: unknown) => {
-  const element = el as HTMLElement | null
-  if (element) {
-    categoryRefs.value.set(categoryId, element)
-  } else {
-    categoryRefs.value.delete(categoryId)
-  }
-}
 
 const initSortables = () => {
   // Clean up existing instances
   sortableInstances.value.forEach((instance) => instance.destroy())
   sortableInstances.value.clear()
 
-  // Initialize new sortables for each category
-  categoryRefs.value.forEach((el, categoryId) => {
+  // Find all sortable containers by class
+  const containers = document.querySelectorAll<HTMLElement>('.recipe-sortable-list')
+  containers.forEach((el) => {
+    const categoryId = el.dataset.categoryId
+    if (!categoryId) return
     const sortable = Sortable.create(el, {
       group: 'recipes',
       animation: 150,
@@ -99,8 +93,8 @@ const handleRecipeMove = (evt: Sortable.SortableEvent) => {
 watch(recipesEditMode, (isEditMode) => {
   if (isEditMode) {
     nextTick(() => {
-      // Wait for DOM to update with new refs
-      setTimeout(() => initSortables(), 100)
+      // Wait for DOM to update
+      setTimeout(() => initSortables(), 150)
     })
   } else {
     // Clean up when exiting edit mode
@@ -681,6 +675,7 @@ const openAddRecipe = (categoryIndex: number) => {
   editingCategoryIndex.value = categoryIndex
   editingRecipeIndex.value = null
   editingRecipe.value = { name: '', ingredients: [''], instructions: '' }
+  editingSteps.value = ['']
   showRecipeModal.value = true
 }
 
@@ -693,24 +688,29 @@ const openEditRecipe = (categoryIndex: number, recipeIndex: number) => {
     ingredients: [...recipe.ingredients],
     instructions: recipe.instructions
   }
+  // Parse instructions into individual steps for editing
+  const steps = recipe.instructions.split('\n').filter(s => s.trim())
+  editingSteps.value = steps.length > 0 ? steps : ['']
   showRecipeModal.value = true
 }
 
 const saveRecipe = () => {
   if (editingCategoryIndex.value === null || !editingRecipe.value.name.trim()) return
   const filteredIngredients = editingRecipe.value.ingredients.filter(i => i.trim())
+  const filteredSteps = editingSteps.value.filter(s => s.trim())
+  const instructions = filteredSteps.join('\n')
   if (editingRecipeIndex.value === null) {
     recipeCategories.value[editingCategoryIndex.value].recipes.push({
       id: `recipe-${Date.now()}`,
       name: editingRecipe.value.name.trim(),
       ingredients: filteredIngredients,
-      instructions: editingRecipe.value.instructions.trim()
+      instructions
     })
   } else {
     const recipe = recipeCategories.value[editingCategoryIndex.value].recipes[editingRecipeIndex.value]
     recipe.name = editingRecipe.value.name.trim()
     recipe.ingredients = filteredIngredients
-    recipe.instructions = editingRecipe.value.instructions.trim()
+    recipe.instructions = instructions
   }
   showRecipeModal.value = false
   autoSaveRecipes()
@@ -729,6 +729,32 @@ const removeIngredient = (index: number) => {
   editingRecipe.value.ingredients.splice(index, 1)
   if (editingRecipe.value.ingredients.length === 0) {
     editingRecipe.value.ingredients.push('')
+  }
+}
+
+const addEditStep = () => {
+  editingSteps.value.push('')
+}
+
+const removeEditStep = (index: number) => {
+  if (editingSteps.value.length > 1) {
+    editingSteps.value.splice(index, 1)
+  } else {
+    editingSteps.value[0] = ''
+  }
+}
+
+const handleEditStepKeydown = (event: KeyboardEvent, index: number) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    if (editingSteps.value[index].trim()) {
+      editingSteps.value.splice(index + 1, 0, '')
+      nextTick(() => {
+        const inputs = document.querySelectorAll('[data-edit-step-input]')
+        const nextInput = inputs[index + 1] as HTMLInputElement
+        nextInput?.focus()
+      })
+    }
   }
 }
 
@@ -1722,7 +1748,6 @@ onMounted(checkAuth)
 
             <!-- Recipe List - Edit Mode -->
             <div
-              :ref="el => setCategoryRef(category.id, el)"
               :data-category-id="category.id"
               class="divide-y divide-gray-200 dark:divide-gray-600 recipe-sortable-list"
             >
@@ -1750,8 +1775,8 @@ onMounted(checkAuth)
                 </button>
 
                 <!-- Drag Handle (far right) -->
-                <div class="drag-handle cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1">
-                  <UIcon name="i-heroicons-bars-3" class="w-5 h-5" />
+                <div class="drag-handle cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-2 touch-none">
+                  <UIcon name="i-heroicons-bars-3" class="w-5 h-5 pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -2166,14 +2191,30 @@ onMounted(checkAuth)
             </div>
           </div>
 
-          <!-- Instructions -->
+          <!-- Steps -->
           <div>
-            <label class="text-xs text-gray-500 mb-2 block">Instructions</label>
-            <UTextarea
-              v-model="editingRecipe.instructions"
-              placeholder="Step by step instructions..."
-              :rows="4"
-            />
+            <label class="text-xs text-gray-500 mb-2 block">Steps (press Enter to add new)</label>
+            <div class="space-y-2">
+              <div v-for="(step, index) in editingSteps" :key="index" class="flex gap-2">
+                <div class="flex items-center gap-2 flex-1">
+                  <span class="text-xs text-gray-400 w-5">{{ index + 1 }}.</span>
+                  <UInput
+                    v-model="editingSteps[index]"
+                    placeholder="Type step and press Enter"
+                    class="flex-1"
+                    data-edit-step-input
+                    @keydown="handleEditStepKeydown($event, index)"
+                  />
+                </div>
+                <UButton
+                  icon="i-heroicons-x-mark"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  @click="removeEditStep(index)"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </template>
