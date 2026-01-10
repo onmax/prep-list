@@ -1361,6 +1361,23 @@ const deleteItem = (drawerIndex: number, itemIndex: number) => {
   drawers.value[drawerIndex].items.splice(itemIndex, 1)
 }
 
+// Reorder sections
+const moveDrawerUp = (index: number) => {
+  if (index > 0) {
+    const temp = drawers.value[index]
+    drawers.value[index] = drawers.value[index - 1]
+    drawers.value[index - 1] = temp
+  }
+}
+
+const moveDrawerDown = (index: number) => {
+  if (index < drawers.value.length - 1) {
+    const temp = drawers.value[index]
+    drawers.value[index] = drawers.value[index + 1]
+    drawers.value[index + 1] = temp
+  }
+}
+
 onMounted(checkAuth)
 </script>
 
@@ -1545,7 +1562,29 @@ onMounted(checkAuth)
         <template v-for="(drawer, drawerIndex) in (editMode ? drawers : filteredDrawers)" :key="drawer.name">
           <div v-if="editMode || drawer.items.length > 0">
             <div class="flex items-center justify-between mb-1">
-              <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{{ drawer.name }}</div>
+              <div class="flex items-center gap-1">
+                <div v-if="editMode" class="flex flex-col">
+                  <UButton
+                    icon="i-heroicons-chevron-up"
+                    size="2xs"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="drawerIndex === 0"
+                    class="!p-0 h-3"
+                    @click="moveDrawerUp(drawerIndex)"
+                  />
+                  <UButton
+                    icon="i-heroicons-chevron-down"
+                    size="2xs"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="drawerIndex === drawers.length - 1"
+                    class="!p-0 h-3"
+                    @click="moveDrawerDown(drawerIndex)"
+                  />
+                </div>
+                <div class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{{ drawer.name }}</div>
+              </div>
               <div v-if="editMode" class="flex gap-1">
                 <UButton icon="i-heroicons-pencil" size="2xs" variant="ghost" color="primary" @click="openEditDrawer(drawerIndex)" />
                 <UButton icon="i-heroicons-trash" size="2xs" variant="ghost" color="error" @click="deleteDrawer(drawerIndex)" />
