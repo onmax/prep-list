@@ -758,6 +758,20 @@ const handleEditStepKeydown = (event: KeyboardEvent, index: number) => {
   }
 }
 
+const handleEditIngredientKeydown = (event: KeyboardEvent, index: number) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    if (editingRecipe.value.ingredients[index].trim()) {
+      editingRecipe.value.ingredients.splice(index + 1, 0, '')
+      nextTick(() => {
+        const inputs = document.querySelectorAll('[data-edit-ingredient-input]')
+        const nextInput = inputs[index + 1] as HTMLInputElement
+        nextInput?.focus()
+      })
+    }
+  }
+}
+
 const toggleRecipeExpand = (recipeId: string) => {
   expandedRecipeId.value = expandedRecipeId.value === recipeId ? null : recipeId
 }
@@ -2164,13 +2178,15 @@ onMounted(checkAuth)
 
           <!-- Ingredients -->
           <div>
-            <label class="text-xs text-gray-500 mb-2 block">Ingredients</label>
+            <label class="text-xs text-gray-500 mb-2 block">Ingredients (press Enter to add new)</label>
             <div class="space-y-2">
               <div v-for="(ingredient, index) in editingRecipe.ingredients" :key="index" class="flex gap-2">
                 <UInput
                   v-model="editingRecipe.ingredients[index]"
-                  placeholder="Ingredient"
+                  placeholder="Type ingredient and press Enter"
                   class="flex-1"
+                  data-edit-ingredient-input
+                  @keydown="handleEditIngredientKeydown($event, index)"
                 />
                 <UButton
                   icon="i-heroicons-x-mark"
