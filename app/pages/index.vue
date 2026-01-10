@@ -1291,10 +1291,13 @@ const saveDrawer = () => {
 }
 
 // Item CRUD
+const newItemInputs = ref<string[]>([''])
+
 const openAddItem = (drawerIndex: number) => {
   editingDrawerIndex.value = drawerIndex
   editingItemIndex.value = null
   editingValue.value = { name: '', icon: '' }
+  newItemInputs.value = ['']
   showItemModal.value = true
 }
 
@@ -1305,14 +1308,45 @@ const openEditItem = (drawerIndex: number, itemIndex: number) => {
   showItemModal.value = true
 }
 
-const saveItem = () => {
-  if (editingDrawerIndex.value === null || !editingValue.value.name.trim()) return
-  if (editingItemIndex.value === null) {
-    drawers.value[editingDrawerIndex.value].items.push({
-      name: editingValue.value.name.trim(),
-      checked: false
-    })
+const handleNewItemKeydown = (event: KeyboardEvent, index: number) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    if (newItemInputs.value[index].trim()) {
+      newItemInputs.value.splice(index + 1, 0, '')
+      nextTick(() => {
+        const inputs = document.querySelectorAll('[data-new-item-input]')
+        const nextInput = inputs[index + 1] as HTMLInputElement
+        nextInput?.focus()
+      })
+    }
+  }
+}
+
+const removeNewItemInput = (index: number) => {
+  if (newItemInputs.value.length > 1) {
+    newItemInputs.value.splice(index, 1)
   } else {
+    newItemInputs.value[0] = ''
+  }
+}
+
+const saveItem = () => {
+  if (editingDrawerIndex.value === null) return
+
+  if (editingItemIndex.value === null) {
+    // Adding new items - save all non-empty inputs
+    const itemsToAdd = newItemInputs.value.filter(item => item.trim())
+    if (itemsToAdd.length === 0) return
+
+    for (const itemName of itemsToAdd) {
+      drawers.value[editingDrawerIndex.value].items.push({
+        name: itemName.trim(),
+        checked: false
+      })
+    }
+  } else {
+    // Editing existing item
+    if (!editingValue.value.name.trim()) return
     drawers.value[editingDrawerIndex.value].items[editingItemIndex.value].name = editingValue.value.name.trim()
   }
   showItemModal.value = false
@@ -2019,15 +2053,38 @@ onMounted(checkAuth)
     <!-- Item Modal -->
     <UModal v-model:open="showItemModal">
       <template #header>
-        <h3 class="font-semibold">{{ editingItemIndex === null ? 'Add Item' : 'Edit Item' }}</h3>
+        <h3 class="font-semibold">{{ editingItemIndex === null ? 'Add Items' : 'Edit Item' }}</h3>
       </template>
       <template #body>
+        <!-- Edit mode: single input -->
         <UInput
+          v-if="editingItemIndex !== null"
           v-model="editingValue.name"
           placeholder="Item name"
           autofocus
           @keyup.enter="saveItem"
         />
+        <!-- Add mode: multiple inputs -->
+        <div v-else class="space-y-2">
+          <label class="text-xs text-gray-500 block">Press Enter to add more items</label>
+          <div v-for="(item, index) in newItemInputs" :key="index" class="flex gap-2">
+            <UInput
+              v-model="newItemInputs[index]"
+              placeholder="Type item and press Enter"
+              class="flex-1"
+              :autofocus="index === 0"
+              data-new-item-input
+              @keydown="handleNewItemKeydown($event, index)"
+            />
+            <UButton
+              icon="i-heroicons-x-mark"
+              size="xs"
+              variant="ghost"
+              color="error"
+              @click="removeNewItemInput(index)"
+            />
+          </div>
+        </div>
       </template>
       <template #footer>
         <div class="flex gap-2 justify-end">
