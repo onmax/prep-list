@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { jsPDF } from 'jspdf'
-import Sortable from 'sortablejs'
 import type { PrepDrawer, PrepList } from '~/utils/drawers'
 import { DRAWERS, DRAWERS_VERSION, AVAILABLE_ICONS } from '~/utils/drawers'
 import type { Recipe, RecipeCategory, RecipesBook } from '~/utils/recipes'
@@ -42,66 +41,26 @@ const createError = ref('')
 const importLoading = ref(false)
 const importUrl = ref('')
 
-// Drag-and-drop state for recipes
-const sortableInstances = ref<Map<string, Sortable>>(new Map())
-
-const initSortables = () => {
-  // Clean up existing instances
-  sortableInstances.value.forEach((instance) => instance.destroy())
-  sortableInstances.value.clear()
-
-  // Find all sortable containers by class
-  const containers = document.querySelectorAll<HTMLElement>('.recipe-sortable-list')
-  containers.forEach((el) => {
-    const categoryId = el.dataset.categoryId
-    if (!categoryId) return
-    const sortable = Sortable.create(el, {
-      group: 'recipes',
-      animation: 150,
-      handle: '.drag-handle',
-      delay: 100,
-      delayOnTouchOnly: true,
-      ghostClass: 'opacity-50',
-      chosenClass: 'ring-2 ring-gray-400 rounded',
-      onEnd: (evt) => handleRecipeMove(evt)
-    })
-    sortableInstances.value.set(categoryId, sortable)
-  })
-}
-
-const handleRecipeMove = (evt: Sortable.SortableEvent) => {
-  const fromCategoryId = evt.from.dataset.categoryId
-  const toCategoryId = evt.to.dataset.categoryId
-
-  if (!fromCategoryId || !toCategoryId || evt.oldIndex === undefined || evt.newIndex === undefined) return
-
-  const fromCategory = recipeCategories.value.find(c => c.id === fromCategoryId)
-  const toCategory = recipeCategories.value.find(c => c.id === toCategoryId)
-
-  if (!fromCategory || !toCategory) return
-
-  // Remove from source
-  const [recipe] = fromCategory.recipes.splice(evt.oldIndex, 1)
-
-  // Add to destination
-  toCategory.recipes.splice(evt.newIndex, 0, recipe)
-
-  autoSaveRecipes()
-}
-
-// Initialize sortables when entering edit mode
-watch(recipesEditMode, (isEditMode) => {
-  if (isEditMode) {
-    nextTick(() => {
-      // Wait for DOM to update
-      setTimeout(() => initSortables(), 150)
-    })
-  } else {
-    // Clean up when exiting edit mode
-    sortableInstances.value.forEach((instance) => instance.destroy())
-    sortableInstances.value.clear()
+// Reorder recipes within a category
+const moveRecipeUp = (categoryIndex: number, recipeIndex: number) => {
+  if (recipeIndex > 0) {
+    const recipes = recipeCategories.value[categoryIndex].recipes
+    const temp = recipes[recipeIndex]
+    recipes[recipeIndex] = recipes[recipeIndex - 1]
+    recipes[recipeIndex - 1] = temp
+    autoSaveRecipes()
   }
-})
+}
+
+const moveRecipeDown = (categoryIndex: number, recipeIndex: number) => {
+  const recipes = recipeCategories.value[categoryIndex].recipes
+  if (recipeIndex < recipes.length - 1) {
+    const temp = recipes[recipeIndex]
+    recipes[recipeIndex] = recipes[recipeIndex + 1]
+    recipes[recipeIndex + 1] = temp
+    autoSaveRecipes()
+  }
+}
 
 // Edit mode state
 const editMode = ref(false)
@@ -568,6 +527,14 @@ const printPrepList = () => {
   if (items.length === 0) return
   const pdfBase64 = generateReceiptPdf('Prep List', items.map(i => i.name))
   sendToPrinter(pdfBase64)
+}
+
+// Copy Prep List to clipboard
+const copyPrepListToClipboard = async () => {
+  const items = drawers.value.flatMap(d => d.items).filter(i => i.checked)
+  if (items.length === 0) return
+  const text = items.map(i => `- ${i.name}`).join('\n')
+  await navigator.clipboard.writeText(text)
 }
 
 // Print Order List
@@ -1462,7 +1429,6 @@ onMounted(checkAuth)
               Clear
             </UButton>
             <UButton
-              v-if="showSelectedOnly"
               icon="i-heroicons-document-arrow-down"
               size="xs"
               color="neutral"
@@ -1473,7 +1439,6 @@ onMounted(checkAuth)
               PDF
             </UButton>
             <UButton
-              v-if="showSelectedOnly"
               icon="i-heroicons-receipt-percent"
               size="xs"
               color="primary"
@@ -1481,6 +1446,16 @@ onMounted(checkAuth)
               @click="printPrepList"
             >
               Print
+            </UButton>
+            <UButton
+              icon="i-heroicons-clipboard-document"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              :disabled="selectedCount === 0"
+              @click="copyPrepListToClipboard"
+            >
+              Copy
             </UButton>
             <UButton
               v-if="!showSelectedOnly"
@@ -1834,14 +1809,10 @@ onMounted(checkAuth)
             </div>
 
             <!-- Recipe List - Edit Mode -->
-            <div
-              :data-category-id="category.id"
-              class="divide-y divide-gray-200 dark:divide-gray-600 recipe-sortable-list"
-            >
+            <div class="divide-y divide-gray-200 dark:divide-gray-600">
               <div
                 v-for="(recipe, recipeIndex) in category.recipes"
                 :key="recipe.id"
-                :data-recipe-id="recipe.id"
                 class="flex items-center gap-2 px-4 py-3 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 <!-- Delete Button (far left) -->
@@ -1853,6 +1824,28 @@ onMounted(checkAuth)
                   @click.stop="deleteRecipe(categoryIndex, recipeIndex)"
                 />
 
+                <!-- Up/Down Buttons -->
+                <div class="flex flex-col">
+                  <UButton
+                    icon="i-heroicons-chevron-up"
+                    size="2xs"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="recipeIndex === 0"
+                    class="!p-0 h-3"
+                    @click="moveRecipeUp(categoryIndex, recipeIndex)"
+                  />
+                  <UButton
+                    icon="i-heroicons-chevron-down"
+                    size="2xs"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="recipeIndex === category.recipes.length - 1"
+                    class="!p-0 h-3"
+                    @click="moveRecipeDown(categoryIndex, recipeIndex)"
+                  />
+                </div>
+
                 <!-- Recipe Name (clickable to edit) -->
                 <button
                   class="flex-1 text-left font-medium text-gray-900 dark:text-gray-100 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
@@ -1860,11 +1853,6 @@ onMounted(checkAuth)
                 >
                   {{ recipe.name }}
                 </button>
-
-                <!-- Drag Handle (far right) -->
-                <div class="drag-handle cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-2 touch-none">
-                  <UIcon name="i-heroicons-bars-3" class="w-5 h-5 pointer-events-none" />
-                </div>
               </div>
             </div>
 
